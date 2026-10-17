@@ -8,8 +8,8 @@
 <link rel="icon" href="assets/sign.svg" type="image/svg+xml">
 <link rel="preload" href="assets/fonts/onest-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="assets/fonts/onest-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="data/ekb-map.json?v=1018b" as="fetch" crossorigin>
-<link rel="stylesheet" href="css/tokens.css?v=1018b">
+<link rel="preload" href="data/ekb-map.json?v=1018e" as="fetch" crossorigin>
+<link rel="stylesheet" href="css/tokens.css?v=1018e">
 <style>
   :root { --g: clamp(20px, 5vw, 64px); }
   *, *::before, *::after { box-sizing: border-box; }
@@ -220,8 +220,8 @@
   .formbox .btn { border: 0; font: inherit; cursor: pointer; white-space: nowrap; padding-inline: 12px; }
   .check { align-items: flex-start; } .check input { margin-top: 2px; } .formbox .note { font-size: 13px; line-height: 18px; color: var(--alpha-white60); }
   .formbox [hidden], .done[hidden] { display: none; }
-  /* подпись карты обязательна по лицензии OpenStreetMap: мелко в углу, как у картографических сервисов */
-  .osm { position: fixed; z-index: 3; right: 8px; bottom: 6px; font-size: 10px; line-height: 14px; color: var(--alpha-white60); opacity: .55; text-decoration: none; transition: opacity .2s; } .osm:hover { opacity: 1; }
+  /* подпись карты обязательна по лицензии OpenStreetMap: одна мелкая строка внизу экрана заявки */
+  .osm { grid-column: 1 / -1; justify-self: end; align-self: end; font-size: 11px; line-height: 15px; color: var(--alpha-white60); opacity: .6; text-decoration: none; transition: opacity .2s; } .osm:hover { opacity: 1; }
   body.shot .osm { display: none; }
   .foot { position: absolute; left: var(--g); bottom: 24px; max-width: 640px; }
   @media (max-width: 1239px) { .chapters { display: none; } }   /* семь глав в шапке помещаются только на широком экране */
@@ -287,7 +287,6 @@
 </head>
 <body>
 <canvas id="map" aria-hidden="true"></canvas>
-<a class="osm" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">©&nbsp;OpenStreetMap</a>
 <div class="veil veil--side" id="veilSide" aria-hidden="true"></div>
 <div class="veil veil--frame" id="veilFrame" aria-hidden="true"></div>
 <div class="veil veil--blur" id="veilBlur" aria-hidden="true"></div>
@@ -438,12 +437,13 @@
         <p class="note">Это демо-страница: заявка никуда не&nbsp;ушла</p>
       </div>
     </form>
+    <a class="osm" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Данные карты ©&nbsp;участники OpenStreetMap</a>
   </div></section>
 </main>
 
 <!-- версия в адресах: меняется при каждой правке, чтобы браузер не показывал старые файлы из кэша -->
-<script>window.__v = "1018b";</script>
-<script src="js/model.js?v=1018b"></script>
-<script src="js/flow.js?v=1018b"></script>
+<script>window.__v = "1018e";</script>
+<script src="js/model.js?v=1018e"></script>
+<script src="js/flow.js?v=1018e"></script>
 </body>
 </html>

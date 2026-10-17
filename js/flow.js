@@ -11,6 +11,7 @@
   // режим съёмки для макетов: ?shot=0|1|2 показывает только карту в позе нужной главы
   const SHOT = new URLSearchParams(location.search).get('shot');
   const reduced = SHOT !== null || matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const touch = matchMedia('(pointer: coarse)').matches;   // телефон и планшет
   // типограф: короткие предлоги, союзы и частицы приклеиваются к следующему слову, тире — к предыдущему, число — к единице. Так ни на одной ширине они не висят в конце строки
   const SHORT = /(^|[\s(«"„])(а|в|во|и|к|ко|о|об|от|с|со|у|на|за|из|по|до|не|но|ни|для|без|под|над|при|про|что|как|или|это|же)\s+/gi;
   function typo(root) {
@@ -405,7 +406,7 @@
       }
     }
     swapK = Math.min(1, swapK + dt / 1.8);
-    morphK += ((want ? 1 : 0) - morphK) * Math.min(1, dt * 1.7);
+    morphK += ((want ? 1 : 0) - morphK) * Math.min(1, dt * (touch ? 3 : 1.7));   // на телефоне сцена собирается быстрее: листают резче
     if (document.body.classList.contains('pin')) { morphK = want ? 1 : 0; swapK = 1; }   // в режиме снимка сцена показывается сразу собранной
     if (morphK > 0.004) {                                // улицы гаснут и распадаются на живые линии
       ctx.fillStyle = BLACK; ctx.globalAlpha = smooth(morphK * 1.4); ctx.fillRect(0, 0, w, h);
@@ -687,7 +688,7 @@
     gliding = requestAnimationFrame(tick);
   }
   function settle() {
-    if (reduced || gliding) return;
+    if (reduced || gliding || finger) return;                       // пока палец на экране, не тянем: доводка начнётся, когда кончится инерция
     const y = window.scrollY, tops = chapters.map((c) => c.offsetTop);
     let i = 0; while (i < tops.length - 1 && y >= tops[i + 1]) i++;
     if (i === tops.length - 1) return;                              // последняя глава крутится свободно
@@ -696,11 +697,15 @@
     glideTo(dir > 0 ? (k > 0.04 ? tops[i + 1] : tops[i]) : (k < 0.96 ? tops[i] : tops[i + 1]));
   }
   document.querySelectorAll('a[href^="#"]').forEach((el) => el.addEventListener('click', (e) => { const t = document.querySelector(el.getAttribute('href')); if (!t) return; e.preventDefault(); if (reduced) window.scrollTo(0, t.offsetTop); else glideTo(t.offsetTop); }));
+  let finger = false;
+  addEventListener('touchstart', () => { finger = true; }, { passive: true });
+  addEventListener('touchend', () => { finger = false; clearTimeout(idle); idle = setTimeout(settle, 220); }, { passive: true });
+  addEventListener('touchcancel', () => { finger = false; }, { passive: true });
   const stopGlide = () => { if (!gliding) return; cancelAnimationFrame(gliding); gliding = 0; glideIdx = -1; glideFrom = -1; readScroll(); };
   addEventListener('wheel', stopGlide, { passive: true }); addEventListener('touchstart', stopGlide, { passive: true }); addEventListener('keydown', stopGlide);
   addEventListener('scroll', () => {
     const y = window.scrollY; if (y !== lastY) dir = y > lastY ? 1 : -1; lastY = y;
-    readScroll(); clearTimeout(idle); if (!gliding) idle = setTimeout(settle, 130);
+    readScroll(); clearTimeout(idle); if (!gliding) idle = setTimeout(settle, touch ? 220 : 130);
   }, { passive: true });
   addEventListener('resize', () => { resize(); readScroll(); });
   resize(); apply(); rollStats(true); zone = zoneTarget; radiiTarget.set(zoneShape(zone)); radii.set(radiiTarget);
