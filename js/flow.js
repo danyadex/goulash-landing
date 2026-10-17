@@ -310,7 +310,7 @@
 
   let last = performance.now(), spawnT = 0;
   function frame(now) {
-    const dt = Math.min(0.1, (now - last) / 1000);   // на слабом телефоне время не замедляется, просто кадры реже last = now; clock += dt; foldK += ((folded ? 1 : 0) - foldK) * Math.min(1, dt * 5);
+    const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt; foldK += ((folded ? 1 : 0) - foldK) * Math.min(1, dt * 5);
     // обновление
     if (reduced || (gliding && glideIdx >= 0)) { scrollPos = scrollTarget; vel = 0; } else {   // в перелёте камера идёт ровно за ним, без пружины: иначе в конце остаётся хвост и рывок
       vel += ((scrollTarget - scrollPos) * 38 - vel * 11.5) * dt; scrollPos += vel * dt; }   // пружина без перелёта
@@ -406,7 +406,7 @@
       }
     }
     swapK = Math.min(1, swapK + dt / 1.8);
-    morphK += ((want ? 1 : 0) - morphK) * Math.min(1, dt * (touch ? 3 : 1.7));   // на телефоне сцена собирается быстрее: листают резче
+    morphK += ((want ? 1 : 0) - morphK) * Math.min(1, dt * 1.7);
     if (document.body.classList.contains('pin')) { morphK = want ? 1 : 0; swapK = 1; }   // в режиме снимка сцена показывается сразу собранной
     if (morphK > 0.004) {                                // улицы гаснут и распадаются на живые линии
       ctx.fillStyle = BLACK; ctx.globalAlpha = smooth(morphK * 1.4); ctx.fillRect(0, 0, w, h);
