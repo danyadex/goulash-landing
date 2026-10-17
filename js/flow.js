@@ -3,6 +3,9 @@
 (async function () {
   const NB = ' ';
   const canvas = document.getElementById('map'), ctx = canvas.getContext('2d');
+  // Safari на iOS при прозрачности чуть меньше нуля (ошибка округления) оставляет прежнюю и рисует скрытое: приводим значение к 0…1 сами
+  { const ga = Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype, 'globalAlpha');
+    for (const c of [ctx]) Object.defineProperty(c, 'globalAlpha', { get() { return ga.get.call(this); }, set(v) { ga.set.call(this, v > 0 ? Math.min(1, v) : 0); } }); }
   const css = getComputedStyle(document.documentElement);
   const CYAN = css.getPropertyValue('--cyan-500').trim() || '#00ffff', WHITE = '#ffffff', BLACK = '#000000';
   const LATE = WHITE;                                  // в айдентике три цвета: опоздание показываем яркостью и заливкой, не новым цветом
@@ -97,6 +100,7 @@
   const cam = { zoom: 1, ox: 0, oy: 0, rot: 0, tilt: 1 };
   // параметры портрета из зерен
   const GP = { pic: 0.6, n: 218000, gamma: 3.3, dot: 0.5, jitter: 15, floor: 0.74, shimmer: 0.22, band: 0.25, speed: 0.12, reach: 0.24, push: 3.5, dust: 3200, far: 1.1 };   // значения выставил Даниил 13.10; dust и far — россыпь вокруг портрета
+  if (matchMedia('(max-width: 899px)').matches) Object.assign(GP, { n: 110000, dot: 1.2, dust: 1200 });   // на телефоне мелкие зёрна сливаются в шум: их меньше, они крупнее
   const C = 2;                                         // номер главы с пультом: 0 начало, 1 вечер, 2 пульт, 3 система
   let poses = [], foldK = 0, folded = false;
   const dimC = document.createElement('canvas'), dctx = dimC.getContext('2d');   // служебный холст для мягкой маски портрета
@@ -306,7 +310,7 @@
   const momentEls = Array.from(document.querySelectorAll('#moments li')), MOMENT = 3.9; let painT = 0, painStage = -1; const SCENE_FIX = +(new URLSearchParams(location.search).get('scene') ?? -1);
   const stepEls = Array.from(document.querySelectorAll('#steps li')), STAGE = [0, 1.4, 2.8, 6.2, 7.6, 9.2]; stepEls.forEach((el, i) => el.style.setProperty('--dur', (STAGE[i + 1] - STAGE[i]) + 's'));
   let demoT = 0, demoStage = -1;
-  function label(text, x, y, alpha, color) { ctx.font = `400 12px ${FONT}`; ctx.textBaseline = 'middle'; ctx.shadowColor = BLACK; ctx.shadowBlur = 8; ctx.globalAlpha = alpha; ctx.fillStyle = color || WHITE; ctx.fillText(text, x, y); ctx.shadowBlur = 0; }
+  function label(text, x, y, alpha, color) { if (!(alpha > 0.003)) return; ctx.font = `400 12px ${FONT}`; ctx.textBaseline = 'middle'; ctx.shadowColor = BLACK; ctx.shadowBlur = 8; ctx.globalAlpha = alpha; ctx.fillStyle = color || WHITE; ctx.fillText(text, x, y); ctx.shadowBlur = 0; }
 
   let last = performance.now(), spawnT = 0;
   function frame(now) {
@@ -584,7 +588,7 @@
         if (k0 > 0.92) { const f = (k0 - 0.92) / 0.08; ctx.strokeStyle = WHITE; ctx.lineWidth = 1.5; ctx.globalAlpha = (1 - f) * sys; ctx.beginPath(); ctx.arc(kxs, kys, 14 + f * 30, 0, 7); ctx.stroke(); }
         label('Заказ из приложения', gx + 16, gy, a);
       }
-      if (st === 1) label('Кухня готовит', kxs + 34, kys, a, CYAN);
+      if (st === 1) label('Кухня готовит', kxs + 20, kys - 26, a, CYAN);
       if (st === 2 && demoHead) { const [hx, hy] = toScreen(demoHead[0], demoHead[1]); label('Курьер в пути', hx + 16, hy - 14, a, CYAN); }
       if (st === 3) label('Гость получил заказ', gx + 16, gy, a, CYAN);
       if (st === 4) {                                    // деньги: от гостя к кухне бежит импульс, потом у точек сети вырастают столбики
