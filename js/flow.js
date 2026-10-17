@@ -1,0 +1,755 @@
+/* Три главы на одном холсте: карта смены живёт всё время, камера перелетает между главами по прокрутке.
+   Карта и цифры условные: это иллюстрация, а не расчёт. Данные улиц: OpenStreetMap. */
+(async function () {
+  const NB = ' ';
+  const canvas = document.getElementById('map'), ctx = canvas.getContext('2d');
+  const css = getComputedStyle(document.documentElement);
+  const CYAN = css.getPropertyValue('--cyan-500').trim() || '#00ffff', WHITE = '#ffffff', BLACK = '#000000';
+  const LATE = WHITE;                                  // в айдентике три цвета: опоздание показываем яркостью и заливкой, не новым цветом
+  const LATE_MIN = 60, SOON_MIN = 40;
+  const FONT = css.getPropertyValue('--font-family-base').trim() || 'sans-serif';
+  // режим съёмки для макетов: ?shot=0|1|2 показывает только карту в позе нужной главы
+  const SHOT = new URLSearchParams(location.search).get('shot');
+  const reduced = SHOT !== null || matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // типограф: короткие предлоги, союзы и частицы приклеиваются к следующему слову, тире — к предыдущему, число — к единице. Так ни на одной ширине они не висят в конце строки
+  const SHORT = /(^|[\s(«"„])(а|в|во|и|к|ко|о|об|от|с|со|у|на|за|из|по|до|не|но|ни|для|без|под|над|при|про|что|как|или|это|же)\s+/gi;
+  function typo(root) {
+    const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: (n) => n.parentElement && !n.parentElement.closest('script, style, textarea, .tune, .vars') && n.nodeValue.trim() ? 1 : 2 });
+    const nodes = []; while (walk.nextNode()) nodes.push(walk.currentNode);
+    for (const n of nodes) { let v = n.nodeValue; for (let i = 0; i < 2; i++) v = v.replace(SHORT, '$1$2\u00A0'); v = v.replace(/ (—|–)/g, '\u00A0$1').replace(/(\d) (?=[а-яё₽%]|из\b)/gi, '$1\u00A0'); if (v !== n.nodeValue) n.nodeValue = v; }
+  }
+  typo(document.body); window.__typo = typo;
+  const VQ = '?v=' + (window.__v || '');
+  const painText = document.querySelector('.pain .text'), casesText = document.querySelector('.cases .stick > div');               // версия дописывается ко всем файлам, чтобы не цеплялся кэш
+  const D = await fetch('data/ekb-map.json' + VQ).then((r) => r.json());
+  const N = D.nodes.length / 2, nx = (i) => D.nodes[i * 2], ny = (i) => D.nodes[i * 2 + 1];
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const ease = (t) => 1 - Math.pow(1 - clamp(t, 0, 1), 3);
+  const smooth = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+  const mix = (a, b, t) => a + (b - a) * t;
+  const inOut = (t) => { t = clamp(t, 0, 1); return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; };
+
+  // ---------- граф улиц и расстояния от кухни ----------
+  const adj = Array.from({ length: N }, () => []);
+  for (let i = 0; i < D.edges.length; i += 2) {
+    const a = D.edges[i], b = D.edges[i + 1], d = Math.hypot(nx(a) - nx(b), ny(a) - ny(b));
+    adj[a].push([b, d]); adj[b].push([a, d]);
+  }
+  let kitchen = 0, best = Infinity;
+  for (let i = 0; i < N; i++) { const d = Math.hypot(nx(i) - D.kitchen[0], ny(i) - D.kitchen[1]); if (d < best && adj[i].length > 2) { best = d; kitchen = i; } }
+  const dist = new Float64Array(N).fill(Infinity), prev = new Int32Array(N).fill(-1);
+  (function dijkstra() {
+    const heap = [[0, kitchen]]; dist[kitchen] = 0;
+    const push = (x) => { heap.push(x); let i = heap.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+    const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = i * 2 + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+    while (heap.length) { const [d, u] = pop(); if (d > dist[u]) continue; for (const [v, wgt] of adj[u]) { const nd = d + wgt; if (nd < dist[v]) { dist[v] = nd; prev[v] = u; push([nd, v]); } } }
+  })();
+  const KX = nx(kitchen), KY = ny(kitchen), REACH = 470;
+  const pool = []; for (let i = 0; i < N; i++) if (dist[i] > 90 && dist[i] < REACH) pool.push(i);
+  const pathTo = (n) => { const p = []; for (let c = n; c !== -1; c = prev[c]) p.push(c); return p.reverse(); };
+
+  // путь одного заказа для третьей главы: дальний узел к северо-востоку от кухни
+  let demoNode = pool[0], demoScore = -Infinity;
+  for (const n of pool) { const s = dist[n] - Math.abs(Math.atan2(ny(n) - KY, nx(n) - KX) + 0.6) * 160; if (dist[n] > 330 && dist[n] < 440 && s > demoScore) { demoScore = s; demoNode = n; } }
+  const demoPath = pathTo(demoNode), demoLen = dist[demoNode];
+  // точки сети для последнего шага «Деньги»: ближайшие перекрёстки вокруг кухни, у каждой свой столбик выручки
+  // «Внедрение»: точки сети вокруг головной кухни, переходят на систему одна за другой — ближние раньше
+  const net = Array.from({ length: 14 }, (_, i) => { const a = i * 2.39996 + 0.6, r = 130 + (i / 13) * 300, tx = KX + Math.cos(a) * r, ty = KY + Math.sin(a) * r * 0.9; let best = 0, bd = 1e9; for (let q = 0; q < N; q++) { const d = Math.hypot(nx(q) - tx, ny(q) - ty); if (d < bd) { bd = d; best = q; } } return { x: nx(best), y: ny(best) }; });
+  const dayBar = document.getElementById('dayBar'), dayN = document.getElementById('dayN'); for (let i = 0; i < 21; i++) dayBar.appendChild(document.createElement('i'));
+  const DAYS = 6.5, MOVE_LOOP = 9.5; let moveT = 0, dayShown = -1;
+  const outlets = [[-430, -190, 0.62], [360, -250, 0.9], [470, 230, 0.48], [-300, 290, 0.74]].map(([dx, dy, v]) => { let best = 0, bd = 1e9; for (let i = 0; i < N; i++) { const d = Math.hypot(nx(i) - (KX + dx), ny(i) - (KY + dy)); if (d < bd) { bd = d; best = i; } } return { x: nx(best), y: ny(best), v }; });
+  const demoCum = [0]; for (let i = 1; i < demoPath.length; i++) demoCum.push(demoCum[i - 1] + Math.hypot(nx(demoPath[i]) - nx(demoPath[i - 1]), ny(demoPath[i]) - ny(demoPath[i - 1])));
+  function demoPoint(t) {
+    const target = t * demoLen; let i = 1; while (i < demoCum.length - 1 && demoCum[i] < target) i++;
+    const seg = demoCum[i] - demoCum[i - 1] || 1, k = clamp((target - demoCum[i - 1]) / seg, 0, 1);
+    return [mix(nx(demoPath[i - 1]), nx(demoPath[i]), k), mix(ny(demoPath[i - 1]), ny(demoPath[i]), k), i];
+  }
+
+  // ---------- слои карты в координатах карты: рисуются один раз, камера их только двигает ----------
+  const MS = 1.7;
+  function lines(c, list, close) { c.beginPath(); for (const l of list) { c.moveTo(l[0], l[1]); for (let i = 2; i < l.length; i += 2) c.lineTo(l[i], l[i + 1]); if (close) c.closePath(); } }
+  function layer(bright) {
+    const cv = document.createElement('canvas'); cv.width = Math.round(D.w * MS); cv.height = Math.round(D.h * MS);
+    const c = cv.getContext('2d'); c.scale(MS, MS); c.lineJoin = 'round'; c.lineCap = 'round';
+    if (!bright) {
+      c.fillStyle = WHITE; c.globalAlpha = 0.03; lines(c, D.parks, true); c.fill();
+      c.globalAlpha = 0.075; lines(c, D.water, true); c.fill('evenodd');
+      c.strokeStyle = WHITE; c.globalAlpha = 0.22; c.lineWidth = 0.6; lines(c, D.water, true); c.stroke();
+      c.globalAlpha = 0.1; c.setLineDash([5, 4]); lines(c, D.rail); c.stroke(); c.setLineDash([]);
+      c.globalAlpha = 0.1; c.lineWidth = 0.6; lines(c, D.roads[2]); c.stroke();
+      c.globalAlpha = 0.2; c.lineWidth = 0.95; lines(c, D.roads[1]); c.stroke();
+      c.globalAlpha = 0.42; c.lineWidth = 1.5; lines(c, D.roads[0]); c.stroke();
+    } else {
+      c.strokeStyle = CYAN; c.shadowColor = CYAN; c.shadowBlur = 8;
+      c.globalAlpha = 0.45; c.lineWidth = 0.7; lines(c, D.roads[2]); c.stroke();
+      c.globalAlpha = 0.7; c.lineWidth = 1.05; lines(c, D.roads[1]); c.stroke();
+      c.globalAlpha = 0.95; c.lineWidth = 1.7; lines(c, D.roads[0]); c.stroke();
+      c.globalAlpha = 0.5; c.lineWidth = 0.9; lines(c, D.water, true); c.stroke();
+    }
+    return cv;
+  }
+  const baseLayer = layer(false), glowLayer = layer(true);
+
+  // ---------- камера: три позы, между ними плавный перелёт ----------
+  let w = 0, h = 0, ratio = 1, wide = true, temp = null, tctx = null, spot = null, sctx = null;
+  const SPOT = 200;
+  const cam = { zoom: 1, ox: 0, oy: 0, rot: 0, tilt: 1 };
+  // ручки гранулярного портрета, крутятся на странице с ?grain
+  const GP = { pic: 0.6, n: 218000, gamma: 3.3, dot: 0.5, jitter: 15, floor: 0.74, shimmer: 0.22, band: 0.25, speed: 0.12, reach: 0.24, push: 3.5, dust: 3200, far: 1.1 };   // значения выставил Даниил 13.10; dust и far — россыпь вокруг портрета
+  window.__grain = { get: (k) => GP[k], set: (k, v) => { GP[k] = +v; if (k === 'n' || k === 'gamma' || k === 'dust' || k === 'far') { clearTimeout(window.__grain.t); window.__grain.t = setTimeout(() => fields.forEach((f) => f && f.regrain && f.regrain()), 120); } } };
+  const GRAIN = !new URLSearchParams(location.search).has('lines');   // портрет из голубых гранул; прежний, гравюрой с контуром: ?lines
+  const TINT = new URLSearchParams(location.search).has('cyan');   // портрет чёрно-белый с голубым контуром и линиями на футболке; целиком голубой для сравнения: ?cyan
+  const FACE = !new URLSearchParams(location.search).has('noface');   // портрет автора цитаты в «Кейсах»; без него: ?noface
+  const C = 2;                                         // номер главы с пультом: 0 начало, 1 вечер, 2 пульт, 3 система
+  let poses = [], foldK = 0, folded = false;
+  let eve = +(new URLSearchParams(location.search).get('eve') || 5);   // вид карты в главе «Вечер»: 0 обычный, 1 низкая камера, 2 прожектор, 3 оба, 4 оба и сжимается зона, 5 линии улиц складываются в рисунок, 6 камера наезжает на кухню, отлетает на весь город, наезжает на гостя
+  const dimC = document.createElement('canvas'), dctx = dimC.getContext('2d');
+  const focus = { x: 0, y: 0, z: 1, tx: 0, ty: 0, tz: 1, set: false };
+  // вариант 5: улицы распадаются на живые линии, которые текут по полю сцены и собирают её из движения (поле снимается с картинки: research/scenes/field.py)
+  const FLOW_N = 2000, TRAIL = 9, scene = { ready: false, parts: [] }, fields = [null, null, null, null]; let morphK = 0, F = null, Fold = null, swapK = 1;
+  // свободные линии за рамкой картинки выключены (amb: false): с ними фон сцены сливался
+  const spawnAt = (q, f) => q.amb ? [-0.35 + Math.random() * 1.7, -0.3 + Math.random() * 1.6] : (q.inZone && f.zone ? f.zone.pick() : f.more());
+  // картинки лежат в поле 1000×1000 в одном масштабе: исходный квадрат занимает 840 px, расширенные версии уходят в поля (research/scenes/place.py); прямоугольники ниже уже в координатах этого поля
+  // у каждого момента своё поле; hot — прямоугольники главного объекта, он светится голубым; bright — второй герой, он просто ярче
+  [['data/field-1900.json', [[0.097, 0.622, 0.403, 0.639]], [[0.634, 1, 0.198, 0.478], [0.755, 1, 0.478, 0.59], [0.634, 1, 0.59, 1]]], ['data/field-1920.json', [[0, 0.74, 0.122, 0.66]]], ['data/field-2010.json', [[0.433, 0.71, 0.08, 0.399], [0.307, 0.811, 0.382, 0.735], [0.307, 0.752, 0.735, 0.92]]],
+   ['data/field-case.json', TINT ? [[0.1, 0.9, 0.08, 0.95]] : [[0.3, 0.8, 0.5, 0.74]], TINT ? [[0.1, 0.9, 0.08, 0.95]] : [], TINT ? 'assets/case-portrait-cyan.jpg' : 'assets/case-portrait.jpg', [[0.4, 0.66, 0.09, 0.47]], TINT ? null : 'assets/case-outline.jpg', GRAIN ? 'assets/case-dots.jpg' : null]].forEach(([url, hot, bright, pic, quiet, rim, grain], idx) => fetch(url + VQ).then((r) => r.json()).then((j) => {
+    const f = { g: j.g, mask: Uint8Array.from(j.mask), ang: Uint8Array.from(j.angle), hot, bright: bright || [], quiet: quiet || [] }, cdf = new Float32Array(j.mask.length); let acc = 0;
+    for (let i = 0; i < cdf.length; i++) { acc += Math.pow(j.mask[i] / 255, 1.6); cdf[i] = acc; }
+    f.pick = () => { const r = Math.random() * acc; let lo = 0, hi = cdf.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (cdf[m] < r) lo = m + 1; else hi = m; } return [((lo % j.g) + Math.random()) / j.g, (Math.floor(lo / j.g) + Math.random()) / j.g]; };
+    if (j.zone && !pic) {                                        // маленькая фигура со своим силуэтом: часть линий живёт только внутри него
+      const z = j.zone, zc = new Float32Array(z.mask.length); let za = 0; for (let i = 0; i < zc.length; i++) { za += Math.pow(z.mask[i] / 255, 1.4); zc[i] = za; }
+      f.zone = { k: Math.min(1, (z.rect[1] - z.rect[0]) / 0.45), r: z.rect, w: z.w, h: z.h, mask: Uint8Array.from(z.mask), ang: Uint8Array.from(z.angle), pick: () => { const r = Math.random() * za; let lo = 0, hi = zc.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (zc[m] < r) lo = m + 1; else hi = m; } return [z.rect[0] + ((lo % z.w) + Math.random()) / z.w * (z.rect[1] - z.rect[0]), z.rect[2] + (Math.floor(lo / z.w) + Math.random()) / z.h * (z.rect[3] - z.rect[2])]; } };
+    }
+    f.more = () => { if (f.bright.length && Math.random() < 0.23) for (let k = 0; k < 12; k++) { const p = f.pick(); if (f.bright.some((r) => p[0] > r[0] && p[0] < r[1] && p[1] > r[2] && p[1] < r[3])) return p; } return f.pick(); };   // второму герою достаётся больше линий
+    if (grain) {                                         // гранулярный портрет: десятки тысяч зёрен, расставленных по самой картинке, каждое со своим размером
+      const im = f.gimg = new Image(); im.onload = () => {
+        const c = document.createElement('canvas'), n = 1600; c.width = c.height = n; const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(im, 0, 0, n, n);
+        const d = x.getImageData(0, 0, n, n).data, cdf = new Float32Array(n * n);
+        f.regrain = () => {                              // расставить зёрна заново — после смены их числа или контраста
+          let acc = 0; for (let i = 0; i < n * n; i++) { acc += Math.pow(d[i * 4 + 1] / 255, GP.gamma); cdf[i] = acc; }
+          const N = Math.round(GP.n), P = new Float32Array(N * 8);
+          for (let k = 0; k < N; k++) { const r = Math.random() * acc; let lo = 0, hi = cdf.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (cdf[m] < r) lo = m + 1; else hi = m; }
+            const q = Math.random();
+            P[k * 8] = ((lo % n) + Math.random()) / n; P[k * 8 + 1] = (Math.floor(lo / n) + Math.random()) / n; P[k * 8 + 2] = d[lo * 4 + 1] / 255; P[k * 8 + 3] = Math.random() * 6.283; P[k * 8 + 4] = (Math.random() - 0.5) * 2; P[k * 8 + 5] = (Math.random() - 0.5) * 2;
+            P[k * 8 + 6] = q < 0.8 ? 0.7 + Math.random() * 0.5 : q < 0.97 ? 1.2 + Math.random() * 0.6 : 1.8 + Math.random() * 1; }   // зерно разного калибра, как на исходнике
+          f.grain = P; f.go = new Float32Array(N * 4);
+          const M = Math.round(GP.dust), U = new Float32Array(M * 5);   // россыпь: зёрна уходят за пределы портрета и редеют с расстоянием
+          for (let k = 0; k < M; k++) { const fr = Math.pow(Math.random(), 1.9), rr = 0.36 + fr * GP.far, th = Math.random() * 6.283, q = Math.random();
+            U[k * 5] = 0.5 + Math.cos(th) * rr * 1.08; U[k * 5 + 1] = 0.5 + Math.sin(th) * rr * 0.92; U[k * 5 + 2] = Math.pow(1 - fr, 1.4); U[k * 5 + 3] = Math.random() * 6.283; U[k * 5 + 4] = q < 0.75 ? 0.8 + Math.random() * 0.7 : q < 0.96 ? 1.5 + Math.random() * 1 : 2.6 + Math.random() * 1.6; }
+          f.dust = U;
+        };
+        (window.requestIdleCallback || ((cb) => setTimeout(cb, 1200)))(() => f.regrain(), { timeout: 5000 });   // двести тысяч зёрен считаются в паузу, а не в первые секунды, когда человек уже жмёт кнопки
+      }; im.src = grain.replace('.jpg', '-cyan.jpg') + VQ;
+    }
+    if (rim) { f.rim = new Image(); f.rim.src = rim + VQ; }   // тонкий голубой контур фигуры
+    if (pic) { f.img = new Image(); f.img.src = pic + VQ; }   // quiet — лицо: там линии почти гаснут, чтобы не искажать черты   // у портрета под линиями лежит сам рисунок: лицо должно остаться узнаваемым
+    fields[idx] = f; if (!F && idx < 3) F = f;
+    if (!scene.ready) {
+      const near = []; for (let i = 0; i < D.edges.length; i += 2) { const a = D.edges[i], b = D.edges[i + 1], d = Math.hypot((nx(a) + nx(b)) / 2 - KX, (ny(a) + ny(b)) / 2 - KY); if (d < 640) near.push([nx(a), ny(a), nx(b), ny(b)]); }
+      for (let i = 0; i < FLOW_N; i++) { const [x, y] = f.pick(), t = new Float32Array(TRAIL * 2); t[0] = x; t[1] = y; scene.parts.push({ x, y, t, n: 1, dx: Math.random() - 0.5, dy: Math.random() - 0.5, sp: 0.03 + Math.random() * 0.05, life: Math.random() * 4, age: 0, src: near[(i * 37) % near.length], band: i % 10, inZone: i % 6 === 0, amb: false }); }
+      scene.ready = true;
+    }
+  }).catch(() => {}));
+  function setPoses() {
+    poses = wide
+      ? [{ zoom: 1.12, ox: w * 0.68, oy: h * 0.5, rot: -0.2, tilt: 0.86 }, (eve === 1 || eve >= 3) ? { zoom: 2.7, ox: w * 0.72, oy: h * 0.64, rot: -0.85, tilt: 0.3 } : { zoom: 1.3, ox: w * 0.66, oy: h * 0.5, rot: -0.11, tilt: 0.83 }, { zoom: 1.5, ox: w * 0.66, oy: h * 0.44, rot: -0.02, tilt: 0.8 }, { zoom: 0.84, ox: w * 0.42, oy: h * 0.56, rot: 0.2, tilt: 0.6 }, { zoom: 0.7, ox: w * 0.72, oy: h * 0.5, rot: 0.38, tilt: 0.7 }, { zoom: 0.82, ox: w * 0.77, oy: h * 0.52, rot: 0.55, tilt: 0.72 }, { zoom: 0.9, ox: w * 0.5, oy: h * 0.5, rot: 0.72, tilt: 0.75 }]
+      : [{ zoom: 0.9, ox: w * 0.5, oy: h * 0.72, rot: -0.2, tilt: 0.86 }, (eve === 1 || eve >= 3) ? { zoom: 2.0, ox: w * 0.5, oy: h * 0.8, rot: -0.85, tilt: 0.32 } : { zoom: 0.98, ox: w * 0.5, oy: h * 0.76, rot: -0.12, tilt: 0.83 }, { zoom: 1.05, ox: w * 0.5, oy: h * 0.74, rot: -0.05, tilt: 0.8 }, { zoom: 0.62, ox: w * 0.42, oy: h * 0.55, rot: 0.2, tilt: 0.6 }, { zoom: 0.55, ox: w * 0.5, oy: h * 0.6, rot: 0.38, tilt: 0.7 }, { zoom: 0.5, ox: w * 0.5, oy: h * 0.76, rot: 0.55, tilt: 0.72 }, { zoom: 0.7, ox: w * 0.5, oy: h * 0.5, rot: 0.72, tilt: 0.75 }];
+  }
+  let px = 0, py = 0, mx = -9999, my = -9999, tmx = 0, tmy = 0, hasMouse = false;
+  const toScreen = (x, y) => { const dx = (x - KX) * cam.zoom, dy = (y - KY) * cam.zoom, c = Math.cos(cam.rot), s = Math.sin(cam.rot); return [cam.ox + px + dx * c - dy * s, cam.oy + py + (dx * s + dy * c) * cam.tilt]; };
+  function applyCamera(c) { c.translate(cam.ox + px, cam.oy + py); c.scale(1, cam.tilt); c.rotate(cam.rot); c.scale(cam.zoom, cam.zoom); c.translate(-KX, -KY); }
+  function drawLayer(c, src) { c.save(); applyCamera(c); c.imageSmoothingQuality = 'high'; c.drawImage(src, 0, 0, D.w, D.h); c.restore(); }
+  function masked(src, cxm, cym, radius, soft, alpha) {
+    tctx.setTransform(ratio, 0, 0, ratio, 0, 0); tctx.globalCompositeOperation = 'source-over'; tctx.clearRect(0, 0, w, h); tctx.globalAlpha = 1; drawLayer(tctx, src);
+    tctx.globalCompositeOperation = 'destination-in';
+    const g = tctx.createRadialGradient(cxm, cym, Math.max(0, radius * (1 - soft)), cxm, cym, radius); g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    tctx.fillStyle = g; tctx.fillRect(0, 0, w, h);
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = alpha; ctx.drawImage(temp, 0, 0);
+  }
+  function spotlight(src, cxm, cym, alpha) {
+    sctx.setTransform(ratio, 0, 0, ratio, 0, 0); sctx.globalCompositeOperation = 'source-over'; sctx.clearRect(0, 0, SPOT * 2, SPOT * 2); sctx.globalAlpha = 1;
+    sctx.save(); sctx.translate(SPOT - cxm, SPOT - cym); drawLayer(sctx, src); sctx.restore();
+    sctx.globalCompositeOperation = 'destination-in';
+    const g = sctx.createRadialGradient(SPOT, SPOT, SPOT * 0.15, SPOT, SPOT, SPOT); g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    sctx.fillStyle = g; sctx.fillRect(0, 0, SPOT * 2, SPOT * 2);
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = alpha; ctx.drawImage(spot, Math.round((cxm - SPOT) * ratio), Math.round((cym - SPOT) * ratio));
+  }
+  function resize() {
+    ratio = Math.min(devicePixelRatio || 1, 1.5); w = canvas.clientWidth; h = canvas.clientHeight; wide = matchMedia('(min-width: 900px)').matches;   // тот же порог, что в стилях: ширина окна вместе с полосой прокрутки
+    canvas.width = Math.round(w * ratio); canvas.height = Math.round(h * ratio);
+    temp = document.createElement('canvas'); temp.width = canvas.width; temp.height = canvas.height; tctx = temp.getContext('2d');
+    spot = document.createElement('canvas'); spot.width = spot.height = Math.round(SPOT * 2 * ratio); sctx = spot.getContext('2d');
+    setPoses();
+  }
+
+  // ---------- главы и прокрутка ----------
+  const chapters = Array.from(document.querySelectorAll('.chapter')), sticks = chapters.map((c) => c.querySelector('.stick'));
+  const navLinks = Array.from(document.querySelectorAll('.chapters a')), menuLinks = Array.from(document.querySelectorAll('.menu__list a')), progressBar = document.getElementById('progressBar');
+  const veilSide = document.getElementById('veilSide'), veilFrame = document.getElementById('veilFrame'), veilBlur = document.getElementById('veilBlur'), veilDim = document.getElementById('veilDim'), veilBlurR = document.getElementById('veilBlurR');
+  let vel = 0;
+  let scrollTarget = 0, scrollPos = 0;                 // положение в главах: 0…3, дробная часть — перелёт
+  let readScroll = function () {
+    if (gliding && glideIdx >= 0) return;               // во время перелёта по ссылке положение ведёт сам перелёт
+    const y = window.scrollY + h * 0.5; let acc = 0;
+    for (let i = 0; i < chapters.length; i++) {
+      const top = chapters[i].offsetTop, hgt = chapters[i].offsetHeight;
+      if (y < top + hgt || i === chapters.length - 1) { const local = clamp((y - top) / hgt, 0, 1); acc = i + inOut((local - 0.3) / 0.7); break; }
+    }
+    scrollTarget = clamp(Number.isFinite(acc) ? acc : 0, 0, chapters.length - 1);   // при нулевой высоте окна (скрытая вкладка) деление даёт NaN
+  };
+
+  function applyChapters() {
+    const p = clamp(scrollPos, 0, poses.length - 1), i0 = Math.min(poses.length - 2, Math.floor(p)), i1 = i0 + 1, t = p - i0;
+    if (gliding && glideIdx >= 0 && glideFrom >= 0 && glideIdx !== glideFrom) {   // перелёт по ссылке: камера идёт прямо от позы, откуда улетели, к позе, куда летим, не заезжая в позы глав по пути
+      const k = clamp((p - glideFrom) / (glideIdx - glideFrom), 0, 1); gk = k;
+      for (const key of ['zoom', 'ox', 'oy', 'rot', 'tilt']) cam[key] = mix(poses[glideFrom][key], poses[glideIdx][key], k);
+      cam.zoom *= 1 - Math.sin(Math.PI * k) * 0.14;      // один плавный отъезд камеры на весь перелёт
+    } else { for (const k of ['zoom', 'ox', 'oy', 'rot', 'tilt']) cam[k] = mix(poses[i0][k], poses[i1][k], t); cam.zoom *= 1 - Math.sin(Math.PI * t) * 0.1; }
+    if (eve === 6) {                                     // фокус: камера сама переезжает от момента к моменту
+      if (!focus.set) { focus.x = focus.tx = KX; focus.y = focus.ty = KY; focus.set = true; }
+      focus.x += (focus.tx - focus.x) * 0.045; focus.y += (focus.ty - focus.y) * 0.045; focus.z += (focus.tz - focus.z) * 0.045;
+      const pk = smooth(1 - Math.abs(p - 1) * 2.2); cam.zoom *= mix(1, focus.z, pk);
+      const dx = (focus.x - KX) * cam.zoom, dy = (focus.y - KY) * cam.zoom, cs = Math.cos(cam.rot), sn = Math.sin(cam.rot);
+      cam.ox -= pk * (dx * cs - dy * sn); cam.oy -= pk * (dx * sn + dy * cs) * cam.tilt;
+    }
+    if (!wide) cam.oy -= foldK * h * 0.2 * (inGlide() ? near(C, p) : Math.max(0, 1 - Math.abs(scrollPos - C)));   // пульт свёрнут — кухня поднимается в центр
+    if (!reduced) { cam.rot += Math.sin(clock * 0.21) * 0.012; cam.zoom *= 1 + Math.sin(clock * 0.17) * 0.008; }
+    sticks.forEach((el, i) => {
+      let d = p - i, o = smooth(1 - Math.abs(d) * 2.2);
+      if (inGlide()) { const dir = Math.sign(glideIdx - glideFrom);   // в перелёте текст уходит и приходит по доле пути, а не по главам: на дальнем прыжке он не обрывается
+        if (i === glideFrom) { o = smooth(1 - gk * 2.4); d = gk * dir * 0.6; } else if (i === glideIdx) { o = smooth(1 - (1 - gk) * 2.4); d = -(1 - gk) * dir * 0.6; } else { o = 0; d = 1; } }
+      // главы на пути перелёта не всплываютт
+      el.style.setProperty('--o', o.toFixed(3)); el.style.setProperty('--d', (-d).toFixed(3));
+      el.toggleAttribute('inert', o < 0.5);
+      const inNow = o > 0.55, was = el.classList.contains('is-in'); el.classList.toggle('is-in', inNow);
+      if (i === C && inNow !== was) { if (inNow) setTimeout(() => rollStats(false), 120); else rollStats(true); }
+    });
+    const active = Math.round(p);
+    navLinks.forEach((a, i) => a.setAttribute('aria-current', String(i === active))); menuLinks.forEach((a, i) => a.setAttribute('aria-current', String(i === active)));
+    progressBar.style.transform = `scaleX(${(p / (chapters.length - 1)).toFixed(4)})`;
+    const tail = inGlide() ? near(4, p) + near(5, p) + near(6, p) : smooth(clamp(p - (C + 1), 0, 1)), sys = inGlide() ? near(C + 1, p) : clamp(p - C, 0, 1) * (1 - tail);   // после «Системы» её демо уходит, карта живёт под затемнением
+    veilDim.style.opacity = (tail * 0.74 * (1 - (FACE ? near(4, p) : 0)) * (1 - 0.5 * near(5, p))).toFixed(3);   // на «Кейсах» затемнение снимаем: там портрет на чёрном
+    const con = near(C, clamp(scrollPos, 0, poses.length - 1));   // насколько мы у пульта, тем же законом, что и сама глава: вуаль уходит, размытая колонка проявляется вместе с рычагами
+    veilSide.style.opacity = ((1 - sys) * (1 - 0.8 * con)).toFixed(3); veilFrame.style.opacity = sys.toFixed(3); veilBlur.style.opacity = con.toFixed(3); veilBlurR.style.opacity = near(6, p).toFixed(3);
+  }
+
+  // ---------- состояние смены ----------
+  let clock = 0, intro = 0;
+  const M = window.CourierModel, state = Object.assign({}, M.START), R0 = M.compute(M.START);
+  let R = R0, zoneTarget = 0, zone = 0, weatherLevel = 1, backlog = 27;
+  const orders = [], flashes = [], agents = Array.from({ length: R.total }, (_, i) => ({ i, on: false, leaving: false, path: null, seg: 0, x: KX, y: KY, state: 'idle', trail: [], wait: 0 }));
+  const streaks = Array.from({ length: 90 }, () => ({ x: Math.random() * 2400 - 300, y: Math.random() * 1200, len: 14 + Math.random() * 26, speed: 700 + Math.random() * 600, a: 0.04 + Math.random() * 0.1, drift: Math.random() * 40 - 20 }));
+  const zoneOf = (onTime) => 130 + onTime * 2.7;
+  // счётчик-барабан: каждая цифра прокручивается на своё место
+  const odo = {};
+  function roll(id, text) {
+    const el = document.getElementById(id), chars = Array.from(text), prevChars = odo[id];
+    const same = prevChars && prevChars.length === chars.length && prevChars.every((c, i) => /\d/.test(c) === /\d/.test(chars[i]));
+    if (!same) {
+      el.innerHTML = chars.map((c) => /\d/.test(c) ? '<span class="odo"><b>' + '0123456789'.split('').map((d) => `<i>${d}</i>`).join('') + '</b></span>' : `<span class="odo-s">${c === ' ' ? NB : c}</span>`).join('');
+      el.setAttribute('aria-label', text);
+    }
+    odo[id] = chars;
+    const cols = el.querySelectorAll('.odo b'); let k = 0;
+    const set = () => chars.forEach((c) => { if (/\d/.test(c)) cols[k++].style.transform = `translateY(${-c * 10}%)`; });
+    if (same || reduced) set(); else requestAnimationFrame(() => requestAnimationFrame(set));
+    el.setAttribute('aria-label', text);
+  }
+  function rollStats(zero) {
+    const c = zero ? 0 : R.couriers, t = zero ? 0 : R.time;
+    roll('sC', `${c} из ${R.total}`); roll('sT', `${String(t).padStart(2, '0')} мин`);
+  }
+  function spawn(age) {
+    if (!pool.length) return;
+    for (let k = 0; k < 20; k++) { const n = pool[(Math.random() * pool.length) | 0]; if (orders.some((o) => o.n === n)) continue; orders.push({ n, x: nx(n), y: ny(n), age, taken: false, born: age > 0 ? -1 : clock, wait0: age > 0 ? 6 + Math.random() * R.time * 0.85 : 3 }); return; }
+  }
+  function apply() {
+    R = M.compute(state); try { renderOffer(); } catch (e) {}   // заголовок заявки следит за пультом; до загрузки формы вызов просто не срабатывает
+    zoneTarget = zoneOf(R.onTime); backlog = Math.max(3, Math.round((R.time - 30) * 0.62));
+    agents.forEach((a) => { if (a.i < R.couriers) { if (!a.on) { a.on = true; a.x = KX; a.y = KY; a.path = null; a.state = 'idle'; a.trail = []; a.wait = Math.random(); } a.leaving = false; } else if (a.on) a.leaving = true; });
+    rollStats(false);
+    const dc = R.couriers - R0.couriers, dt2 = R0.time - R.time, dr = R.cost - R0.cost, v = document.getElementById('verdict');
+    if (dt2 > 0) v.innerHTML = `Гость ждет на${NB}<b>${dt2}${NB}мин меньше</b>`;          // одна строка: только что стало с гостем
+    else if (dt2 < 0) v.textContent = `Гость ждет на${NB}${-dt2}${NB}мин дольше`;
+    else if (dc || dr) v.textContent = `На${NB}доставке не${NB}сказалось`;
+    else v.textContent = `Гость ждет больше часа`;
+    document.getElementById('rateOut').textContent = `${state.rate}${NB}₽`;
+  }
+
+  const BINS = 96, radii = new Float32Array(BINS), radiiTarget = new Float32Array(BINS);
+  function zoneShape(limit) {
+    const r = new Float32Array(BINS);
+    for (let i = 0; i < N; i++) { if (dist[i] > limit) continue; const dx = nx(i) - KX, dy = ny(i) - KY, b = ((Math.atan2(dy, dx) / (Math.PI * 2) + 1) % 1 * BINS) | 0, d = Math.hypot(dx, dy); if (d > r[b]) r[b] = d; }
+    for (let pass = 0; pass < 3; pass++) { const c = r.slice(); for (let b = 0; b < BINS; b++) r[b] = (c[(b + BINS - 1) % BINS] + c[b] * 2 + c[(b + 1) % BINS]) / 4; }
+    return r;
+  }
+  function zonePath(k) {
+    ctx.beginPath();
+    const pt = (b) => { const a = b / BINS * Math.PI * 2, rr = radii[(b + BINS) % BINS] * k; return [KX + Math.cos(a) * rr, KY + Math.sin(a) * rr]; };
+    for (let b = 0; b <= BINS; b++) { const [x0, y0] = pt(b), [x1, y1] = pt(b + 1), qx = (x0 + x1) / 2, qy = (y0 + y1) / 2; if (b === 0) ctx.moveTo(qx, qy); else ctx.quadraticCurveTo(x0, y0, qx, qy); }
+    ctx.closePath();
+  }
+  function step(a, dt) {
+    if (!a.on) return;
+    if (a.wait > 0) { a.wait -= dt; return; }
+    if (!a.path) {
+      if (a.leaving) { a.on = false; a.leaving = false; a.trail = []; return; }
+      let pick = null; for (const o of orders) if (!o.taken && (!pick || o.age > pick.age)) pick = o;
+      if (!pick) return; pick.taken = true; a.order = pick; a.path = pathTo(pick.n); a.seg = 0; a.state = 'go';
+    }
+    let move = 62 * dt;
+    while (move > 0 && a.path) {
+      const n = a.path[a.seg + 1];
+      if (n === undefined) {
+        if (a.state === 'go') { const k = orders.indexOf(a.order); if (k >= 0) orders.splice(k, 1); flashes.push({ x: a.x, y: a.y, t: 0 }); a.order = null; a.state = 'back'; a.path = a.path.slice().reverse(); a.seg = 0; }
+        else { a.path = null; a.state = 'idle'; a.trail = []; a.wait = 0.4 + Math.random(); }
+        break;
+      }
+      const dx = nx(n) - a.x, dy = ny(n) - a.y, d = Math.hypot(dx, dy);
+      if (d <= move) { a.x = nx(n); a.y = ny(n); a.seg++; move -= d; } else { a.x += dx / d * move; a.y += dy / d * move; move = 0; }
+    }
+    a.trail.push(a.x, a.y); if (a.trail.length > 420) a.trail.splice(0, 2);
+  }
+
+  // ---------- третья глава: путь одного заказа, пять шагов по кругу ----------
+  const momentEls = Array.from(document.querySelectorAll('#moments li')), MOMENT = 3.9; let painT = 0, painStage = -1; const SCENE_FIX = +(new URLSearchParams(location.search).get('scene') ?? -1);
+  const stepEls = Array.from(document.querySelectorAll('#steps li')), STAGE = [0, 1.4, 2.8, 6.2, 7.6, 9.2]; stepEls.forEach((el, i) => el.style.setProperty('--dur', (STAGE[i + 1] - STAGE[i]) + 's'));
+  let demoT = 0, demoStage = -1;
+  function label(text, x, y, alpha, color) { ctx.font = `400 12px ${FONT}`; ctx.textBaseline = 'middle'; ctx.shadowColor = BLACK; ctx.shadowBlur = 8; ctx.globalAlpha = alpha; ctx.fillStyle = color || WHITE; ctx.fillText(text, x, y); ctx.shadowBlur = 0; }
+
+  let last = performance.now(), spawnT = 0;
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt; foldK += ((folded ? 1 : 0) - foldK) * Math.min(1, dt * 5);
+    // обновление
+    if (reduced || (gliding && glideIdx >= 0)) { scrollPos = scrollTarget; vel = 0; } else {   // в перелёте камера идёт ровно за ним, без пружины: иначе в конце остаётся хвост и рывок
+      vel += ((scrollTarget - scrollPos) * 38 - vel * 11.5) * dt; scrollPos += vel * dt; }   // пружина без перелёта
+    applyChapters();
+    const sys = inGlide() ? near(C + 1, scrollPos) : smooth(clamp(scrollPos - C, 0, 1)) * (1 - smooth(clamp(scrollPos - (C + 1), 0, 1))), pain = near(1, scrollPos), moveK = near(5, scrollPos), shift = (1 - sys * 0.82) * (1 - smooth(morphK * 1.4)) * (1 - moveK * 0.9);
+    const read = SHOT !== null ? (+SHOT >= 1 ? 1 : 0) : inGlide() ? 1 - near(0, scrollPos) : smooth(clamp(scrollPos, 0, 1));   // 0 — огоньки, 1 — метки для чтения      // в третьей главе смена уходит на второй план
+    for (const o of orders) o.age += dt;
+    spawnT -= dt; if (orders.length < backlog && spawnT <= 0) { spawn(0); spawnT = 0.35 + Math.random() * 0.5; }
+    agents.forEach((a) => step(a, dt));
+    for (const f of flashes) f.t += dt; while (flashes.length && flashes[0].t > 0.7) flashes.shift();
+    const zt = zoneTarget * (eve === 4 && pain > 0.5 ? [1, 0.7, 0.42][Math.min(2, Math.floor(painT / MOMENT))] : 1);   // в «перемотке» зона сжимается от момента к моменту
+    if (Math.abs(zone - zt) > 1) { zone += (zt - zone) * Math.min(1, dt * 1.6); radiiTarget.set(zoneShape(zone)); }
+    for (let b = 0; b < BINS; b++) radii[b] += (radiiTarget[b] - radii[b]) * Math.min(1, dt * 4);
+    weatherLevel += ((state.weather === 'clear' ? 0 : 1) - weatherLevel) * Math.min(1, dt * 2.5);
+    intro = Math.min(1, intro + dt / 2.6);
+    px += ((hasMouse ? (tmx / w - 0.5) * -26 : 0) - px) * Math.min(1, dt * 3); py += ((hasMouse ? (tmy / h - 0.5) * -18 : 0) - py) * Math.min(1, dt * 3);
+    mx += (tmx - mx) * Math.min(1, dt * 9); my += (tmy - my) * Math.min(1, dt * 9);
+    if (SHOT === null) { if (sys > 0.5) demoT = (demoT + dt) % STAGE[5]; else demoT = 0; }
+    const stage = sys > 0.5 ? STAGE.findIndex((s, i) => demoT >= s && demoT < STAGE[i + 1]) : -1;
+    if (pain > 0.5) painT = (painT + dt) % (MOMENT * 3); else painT = 0;
+    if (SCENE_FIX >= 0) painT = (SCENE_FIX + 0.5) * MOMENT;                             /* ?scene=0..2 держит один момент — для кадров в Figma */                 // вечер: три момента сменяются сами
+    const pst = pain > 0.5 ? (reduced ? 2 : Math.floor(painT / MOMENT)) : -1, pph = (painT % MOMENT) / MOMENT;
+    if (pst !== painStage) {
+      painStage = pst; momentEls.forEach((el, i) => el.classList.toggle('is-on', i === pst));
+      if (pst === 1) { focus.tx = KX; focus.ty = KY; focus.tz = 0.42; }                 // коллапс: отлёт на весь город
+      else if (pst === 2) { let best = null; for (const o of orders) if (!o.taken && (!best || o.wait0 + o.age * 1.3 > best.wait0 + best.age * 1.3)) best = o; focus.tx = best ? best.x : KX; focus.ty = best ? best.y : KY; focus.tz = 2.3; }   // гость, который ждёт дольше всех
+      else { focus.tx = KX; focus.ty = KY; focus.tz = pst === 0 ? 2.1 : 1; }             // кухня
+    }
+    if (moveK > 0.5) moveT = (moveT + dt) % MOVE_LOOP; else moveT = 0;                 // внедрение: 21 день проходит за шесть с половиной секунд, потом пауза
+    const dayF = Math.min(21, moveT / DAYS * 21), day = moveK > 0.5 ? Math.min(21, 1 + Math.floor(dayF)) : 0;
+    if (day !== dayShown) { dayShown = day; dayN.textContent = `День${NB}${Math.max(1, day)}`; for (let i = 0; i < 21; i++) dayBar.children[i].className = i < day ? 'on' : ''; }
+    if (stage !== demoStage) { demoStage = stage; stepEls.forEach((el, i) => { el.classList.toggle('is-on', i === stage); el.classList.toggle('is-done', stage >= 0 && i < stage); }); }
+
+    // рисование
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const [kxs, kys] = toScreen(KX, KY), far = Math.hypot(w, h) * 1.05, grow = ease(intro);
+    if (intro < 1) masked(baseLayer, kxs, kys, far * grow + 30, 0.35, 1);
+    else { ctx.setTransform(ratio, 0, 0, ratio, 0, 0); ctx.globalAlpha = 1; drawLayer(ctx, baseLayer); }
+    if (hasMouse) spotlight(glowLayer, mx, my, 0.9);
+    if (intro < 1) masked(glowLayer, kxs, kys, far * grow + 60, 0.12, (1 - grow) * 0.9);
+    const fly = inGlide() ? Math.sin(Math.PI * gk) : Math.abs(scrollPos - Math.round(scrollPos)) * 2;   // в перелёте улицы разгораются один раз на весь путь                     // во время перелёта улицы вспыхивают
+    if (fly > 0.04 && !reduced) { ctx.setTransform(ratio, 0, 0, ratio, 0, 0); ctx.globalAlpha = fly * 0.22; drawLayer(ctx, glowLayer); }
+
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0); ctx.globalAlpha = 1;
+    if (ctx.createConicGradient && !reduced && shift > 0.3) {
+      const g = ctx.createConicGradient(clock * 0.7, kxs, kys);
+      g.addColorStop(0, 'rgba(0,255,255,0)'); g.addColorStop(0.86, 'rgba(0,255,255,0)'); g.addColorStop(1, `rgba(0,255,255,${0.1 * shift})`);
+      ctx.save(); ctx.translate(kxs, kys); ctx.scale(1, cam.tilt); ctx.translate(-kxs, -kys); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(kxs, kys, zone * cam.zoom * 1.25, 0, 7); ctx.fill(); ctx.restore();
+    }
+    ctx.save(); applyCamera(ctx); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    const zk = 0.2 + 0.8 * ease((intro - 0.25) / 0.75), z = cam.zoom;
+    zonePath(zk); ctx.fillStyle = CYAN; ctx.globalAlpha = 0.035 * shift; ctx.fill();
+    ctx.strokeStyle = WHITE; ctx.globalAlpha = 0.9 * zk * shift; ctx.lineWidth = 1.6 / z; ctx.shadowColor = WHITE; ctx.shadowBlur = 14; ctx.stroke(); ctx.shadowBlur = 0;
+    zonePath(zk * (1.045 + Math.sin(clock * 1.2) * 0.008)); ctx.globalAlpha = 0.35 * shift; ctx.lineWidth = 1 / z; ctx.setLineDash([1.5 / z, 5 / z]); ctx.stroke(); ctx.setLineDash([]);
+    if (!reduced) { const per = zone * 6.6; zonePath(zk); ctx.strokeStyle = CYAN; ctx.globalAlpha = 0.95 * shift; ctx.lineWidth = 2.4 / z; ctx.shadowColor = CYAN; ctx.shadowBlur = 18; ctx.setLineDash([per * 0.07, per]); ctx.lineDashOffset = -clock * 120; ctx.stroke(); ctx.setLineDash([]); ctx.lineDashOffset = 0; ctx.shadowBlur = 0; }
+    for (const a of agents) {
+      if (!a.on || !a.path) continue;
+      const go = a.state === 'go';
+      const trace = (from, to) => { ctx.beginPath(); if (from === a.seg + 1) ctx.moveTo(a.x, a.y); else ctx.moveTo(nx(a.path[from]), ny(a.path[from])); for (let i = from === a.seg + 1 ? from : from + 1; i <= to; i++) ctx.lineTo(nx(a.path[i]), ny(a.path[i])); if (to === a.seg) ctx.lineTo(a.x, a.y); };
+      {                                                    // длинный хвост: в первой главе яркий, у пульта тише
+        ctx.strokeStyle = CYAN; ctx.lineWidth = 1 / z; ctx.globalAlpha = (go ? 0.3 : 0.1) * shift * (1 - read); if (read < 0.98) { trace(a.seg + 1, a.path.length - 1); ctx.stroke(); }
+        const T = a.trail, n0 = 0, tail = 1 - read * 0.45; ctx.lineWidth = 1.8 / z;
+        for (let i = n0 + 2; i < T.length; i += 6) { const e = Math.min(i + 4, T.length - 2); ctx.globalAlpha = Math.pow((e - n0) / (T.length - n0), 1.5) * 0.85 * shift * tail; ctx.beginPath(); ctx.moveTo(T[i - 2], T[i - 1]); for (let j = i; j <= e; j += 2) ctx.lineTo(T[j], T[j + 1]); ctx.stroke(); }
+      }
+      if (read < 0.02) continue;
+      if (go) {
+        ctx.strokeStyle = WHITE; ctx.globalAlpha = 0.22 * shift * read; ctx.lineWidth = 1.6 / z; trace(0, a.seg); ctx.stroke();                 // пройдено
+        ctx.strokeStyle = BLACK; ctx.globalAlpha = 0.9 * shift * read; ctx.lineWidth = 6 / z; trace(a.seg + 1, a.path.length - 1); ctx.stroke();  // подложка
+        ctx.strokeStyle = CYAN; ctx.globalAlpha = 0.95 * shift * read; ctx.lineWidth = 2.2 / z; trace(a.seg + 1, a.path.length - 1); ctx.stroke(); // осталось
+      } else {
+        ctx.strokeStyle = CYAN; ctx.globalAlpha = 0.22 * shift * read; ctx.lineWidth = 1 / z; ctx.setLineDash([2 / z, 5 / z]); trace(a.seg + 1, a.path.length - 1); ctx.stroke(); ctx.setLineDash([]);
+      }
+    }
+    // путь одного заказа
+    let demoHead = null;
+    if (sys > 0.02) {
+      const run = clamp((demoT - STAGE[2]) / (STAGE[3] - STAGE[2]), 0, 1), drawn = stage >= 2 ? (stage === 2 ? ease(run) : 1) : 0;
+      ctx.strokeStyle = WHITE; ctx.globalAlpha = 0.28 * sys; ctx.lineWidth = 1.2 / z; ctx.setLineDash([3 / z, 5 / z]);
+      ctx.beginPath(); ctx.moveTo(nx(demoPath[0]), ny(demoPath[0])); for (const n of demoPath) ctx.lineTo(nx(n), ny(n)); ctx.stroke(); ctx.setLineDash([]);
+      if (drawn > 0) {
+        const [hx, hy, hi] = demoPoint(drawn); demoHead = [hx, hy];
+        ctx.strokeStyle = CYAN; ctx.globalAlpha = sys; ctx.lineWidth = 3.2 / z; ctx.shadowColor = CYAN; ctx.shadowBlur = 22;
+        ctx.beginPath(); ctx.moveTo(nx(demoPath[0]), ny(demoPath[0])); for (let i = 1; i < hi; i++) ctx.lineTo(nx(demoPath[i]), ny(demoPath[i])); ctx.lineTo(hx, hy); ctx.stroke(); ctx.shadowBlur = 0;
+      }
+    }
+    ctx.restore();
+
+    if (eve >= 2 && eve !== 5 && pain > 0.02) {                       // прожектор: карта гаснет, светится только то, о чём момент
+      if (dimC.width !== canvas.width || dimC.height !== canvas.height) { dimC.width = canvas.width; dimC.height = canvas.height; }
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0); ctx.globalAlpha = 0.85 * pain; drawLayer(ctx, glowLayer); ctx.globalAlpha = 1;   // улицы разгораются, а темнота вокруг оставляет их только в пятнах света
+      dctx.setTransform(ratio, 0, 0, ratio, 0, 0); dctx.globalCompositeOperation = 'source-over'; dctx.clearRect(0, 0, w, h); dctx.fillStyle = `rgba(0,0,0,${(0.94 * pain).toFixed(3)})`; dctx.fillRect(0, 0, w, h);
+      dctx.globalCompositeOperation = 'destination-out';
+      const k = Math.min(1, pph * 5), hole = (x, y, r) => { const g = dctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(0,0,0,${k})`); g.addColorStop(0.45, `rgba(0,0,0,${k * 0.8})`); g.addColorStop(1, 'rgba(0,0,0,0)'); dctx.fillStyle = g; dctx.beginPath(); dctx.arc(x, y, r, 0, 7); dctx.fill(); };
+      if (pst <= 0) hole(kxs, kys, 260);
+      if (pst === 1) for (const a of agents) if (a.on && a.path) { const [x, y] = toScreen(a.x, a.y); hole(x, y, 150); }
+      if (pst === 2) for (const o of orders) if (!o.taken && Math.min(R.time + 12, Math.round(o.wait0 + o.age * 1.3)) >= LATE_MIN) { const [x, y] = toScreen(o.x, o.y); hole(x, y, 140); }
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.drawImage(dimC, 0, 0); ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    }
+
+    const caseK = near(4, scrollPos);                              // глава «Кейсы»: линии собирают портрет
+    const passing = gliding && glideIdx >= 0, want = eve === 5 && scene.ready ? (pain > 0.5 && !(passing && glideIdx !== 1) ? fields[Math.max(0, pst)] : FACE && caseK > 0.5 && !(passing && glideIdx !== 4) ? fields[3] : null) || null : null;
+    if (want && want !== F) {                            // новый момент: линии не гаснут, а перетекают со старых мест на новые и дорисовывают сцену
+      const live = morphK > 0.5; Fold = F; F = want; swapK = live ? 0 : 1;
+      for (const q of scene.parts) {
+        const Z = !q.amb && q.inZone && F.zone ? F.zone : null, [x, y] = spawnAt(q, F);
+        if (live) { q.o = [q.x, q.y]; q.to = [x, y]; q.wd = clamp(x * 0.8 + 0.1 * Math.sin(y * 7) + 0.1, 0, 1); q.hot0 = q.hot || 0; q.hot1 = !q.amb && ((Z && F.hot.length) || F.hot.some((r) => x > r[0] && x < r[1] && y > r[2] && y < r[3])) ? 1 : 0; q.side = (Math.random() < 0.5 ? 1 : -1) * (0.05 + Math.random() * 0.16); }
+        else { const T = q.t; q.o = null; q.x = x; q.y = y; q.n = 1; T[0] = x; T[1] = y; q.age = 0; q.life = 2.5 + Math.random() * 3.5; }
+      }
+    }
+    swapK = Math.min(1, swapK + dt / 1.8);
+    morphK += ((want ? 1 : 0) - morphK) * Math.min(1, dt * 1.7);
+    if (document.body.classList.contains('pin')) { morphK = want ? 1 : 0; swapK = 1; }   // в режиме снимка сцена показывается сразу собранной
+    if (morphK > 0.004) {                                // улицы гаснут и распадаются на живые линии
+      ctx.fillStyle = BLACK; ctx.globalAlpha = smooth(morphK * 1.4); ctx.fillRect(0, 0, w, h);
+      let size = wide ? Math.min(w * 0.548, h * 0.95) : Math.min(w * 1.17, h * 0.548), bx = (wide ? w * 0.745 : w * 0.5) - size / 2, by = (wide ? h * 0.53 : h * 0.75) - size / 2;
+      if (!wide) {                                       // на телефоне сцена занимает место под текстом главы, сколько бы его ни было
+        const el = F === fields[3] ? casesText : painText, top = el ? el.getBoundingClientRect().bottom + 6 : h * 0.5, room = Math.max(120, h - top - 10);
+        size = Math.min(w * 1.17, room / 0.86); bx = w / 2 - size / 2; by = top + room / 2 - size * 0.51;
+      }
+      const G = F.g, at = (x, y) => (Math.min(G - 1, Math.max(0, y * G | 0)) * G + Math.min(G - 1, Math.max(0, x * G | 0)));
+      if (F.grain) {                                     // гранулы слетаются волной, мерцают, а под курсором разлетаются и возвращаются на место
+        const P = F.grain, O = F.go, N = P.length / 8, t = (clock * GP.speed) % 1, band = -0.35 + 1.7 * t, dot = Math.max(0.5, size / 700 * GP.dot), jit = GP.jitter / 10000, B = [[], [], [], []];
+        const live = hasMouse && !reduced && morphK > 0.9, mxf = live ? (tmx - bx) / size : -9, myf = live ? (tmy - by) / size : -9, R = GP.reach, R2 = R * R;
+        const mvx = live && F.pm ? clamp((mxf - F.pm[0]) / Math.max(dt, 0.004), -3, 3) : 0, mvy = live && F.pm ? clamp((myf - F.pm[1]) / Math.max(dt, 0.004), -3, 3) : 0; F.pm = live ? [mxf, myf] : null;
+        const damp = Math.exp(-5.5 * dt), spd = Math.hypot(mvx, mvy);
+        if (GP.pic > 0 && F.gimg.complete && F.gimg.naturalWidth) { ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = GP.pic * smooth((morphK - 0.45) / 0.55); ctx.drawImage(F.gimg, bx, by, size, size); ctx.globalCompositeOperation = 'source-over'; }
+        const gstep = inGlide() ? 3 : 1;                 // на пролёте портрет рисуется каждым третьим зерном: кадр не проседает, а глазу в движении разницы нет
+        for (let k = 0; k < N; k += gstep) {
+          const i = k * 8, j = k * 4, hx = P[i], hy = P[i + 1], ph = P[i + 3], e = inOut(clamp((morphK - hx * 0.45) / 0.55, 0, 1));
+          if (e <= 0) continue;
+          let ox = O[j], oy = O[j + 1], vx = O[j + 2], vy = O[j + 3];
+          const dx = hx + ox - mxf, dy = hy + oy - myf, d2 = dx * dx + dy * dy;
+          if (d2 < R2 && spd > 0.02) {                   // курсор не выдавливает дыру: зёрна только смазываются вслед за движением, каждое на свою величину
+            const d = Math.sqrt(d2) + 1e-4, f = 1 - d / R, own = 0.35 + 0.65 * (P[i + 4] * 0.5 + 0.5), g = GP.push * f * f * own;
+            vx += (mvx * g * 0.5 - dy / d * spd * g * 0.22 + P[i + 5] * spd * g * 0.12) * dt; vy += (mvy * g * 0.5 + dx / d * spd * g * 0.22 + P[i + 4] * spd * g * 0.12) * dt;
+          }
+          if (ox || oy || vx || vy) {                    // пружина возвращает зерно на место
+            vx = (vx - ox * 26 * dt) * damp; vy = (vy - oy * 26 * dt) * damp; ox += vx * dt; oy += vy * dt;
+            const om = Math.hypot(ox, oy); if (om > 0.028) { ox *= 0.028 / om; oy *= 0.028 / om; }   // далеко от своего места зерно не уходит
+            if (d2 >= R2 && Math.abs(ox) + Math.abs(oy) < 2e-4 && Math.abs(vx) + Math.abs(vy) < 2e-4) ox = oy = vx = vy = 0;
+            O[j] = ox; O[j + 1] = oy; O[j + 2] = vx; O[j + 3] = vy;
+          }
+          const sc = (1 - e) * 0.32, x = hx + ox + P[i + 4] * sc + Math.sin(clock * 0.9 + ph) * jit, y = hy + oy + P[i + 5] * sc + Math.cos(clock * 0.7 + ph * 1.7) * jit;
+          const lit = Math.max(0, 1 - Math.abs(hx - hy * 0.25 - band) / 0.16), a = (GP.floor + (1 - GP.floor) * P[i + 2]) * (0.92 - GP.shimmer + GP.shimmer * Math.sin(clock * 1.6 + ph * 3)) * e + lit * GP.band * e;
+          B[a > 0.8 ? 3 : a > 0.58 ? 2 : a > 0.38 ? 1 : 0].push(bx + x * size, by + y * size, dot * P[i + 6]);
+        }
+        if (F.dust) { const U = F.dust, M = U.length / 5, dk = smooth((morphK - 0.3) / 0.7);   // россыпь медленно плывёт и мерцает
+          for (let k = 0; k < M; k++) { const i = k * 5, ph = U[i + 3], x = U[i] + Math.sin(clock * 0.11 + ph) * 0.02, y = U[i + 1] + Math.cos(clock * 0.09 + ph * 1.3) * 0.02 - ((clock * 0.004 + ph) % 0.06), a = U[i + 2] * (0.5 + 0.5 * Math.sin(clock * 0.8 + ph * 2)) * dk;
+            if (a > 0.06) B[a > 0.7 ? 3 : a > 0.45 ? 2 : a > 0.22 ? 1 : 0].push(bx + x * size, by + y * size, dot * 1.6 * U[i + 4]); } }
+        ctx.fillStyle = CYAN;
+        for (let b = 0; b < 4; b++) { const L = B[b]; ctx.globalAlpha = [0.28, 0.5, 0.74, 1][b]; ctx.beginPath(); for (let q = 0; q < L.length; q += 3) ctx.rect(L[q], L[q + 1], L[q + 2], L[q + 2]); ctx.fill(); }
+        ctx.globalAlpha = 1;
+      } else if (F.img && F.img.complete && F.img.naturalWidth) {
+        const fade = smooth((morphK - 0.5) / 0.5) * (1 - 0.6 * Math.sin(Math.PI * swapK));
+        ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = fade * (F.rim ? 0.86 : 0.66 + 0.06 * Math.sin(clock * 1.3)); ctx.drawImage(F.img, bx, by, size, size);   // рисунок слегка «дышит»
+        const lay = F.rim && F.rim.complete && F.rim.naturalWidth ? F.rim : F.img;   // свет бежит по контуру, если он есть, иначе по самому портрету
+        if (lay === F.rim) { ctx.globalAlpha = fade * 0.3; ctx.drawImage(F.rim, bx, by, size, size); }
+        if (!reduced) {                                  // полоса света идёт слева направо: под ней контур разгорается; черты лица не двигаются
+          if (dimC.width !== canvas.width || dimC.height !== canvas.height) { dimC.width = canvas.width; dimC.height = canvas.height; }
+          const t = (clock * 0.13) % 1, cx = bx + size * (-0.35 + 1.7 * t), bw = size * 0.24;
+          dctx.setTransform(ratio, 0, 0, ratio, 0, 0); dctx.globalCompositeOperation = 'source-over'; dctx.globalAlpha = 1; dctx.clearRect(0, 0, w, h); dctx.drawImage(lay, bx, by, size, size);
+          const g = dctx.createLinearGradient(cx - bw, by, cx + bw, by + size * 0.35); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.5, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+          dctx.globalCompositeOperation = 'destination-in'; dctx.fillStyle = g; dctx.fillRect(0, 0, w, h);
+          ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = fade * (lay === F.rim ? 0.95 : 0.45); ctx.drawImage(dimC, 0, 0); ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+        }
+        ctx.globalCompositeOperation = 'source-over';
+      }
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      const arc = (x1, y1, x2, y2, b) => { ctx.moveTo(x1, y1); ctx.quadraticCurveTo((x1 + x2) / 2 - (y2 - y1) * b, (y1 + y2) / 2 + (x2 - x1) * b, x2, y2); };   // в полёте линия гнётся дугой, а не летит палкой
+      if (!F.grain) for (const hot of [0, 1]) for (let lvl = 0; lvl < 3; lvl++) {
+        ctx.beginPath();
+        for (const q of scene.parts) {
+          if (lvl === 0 && hot === 0) {                  // шаг частицы: считаем один раз за кадр
+            const e2 = q.o ? inOut(clamp((swapK - q.wd * 0.5) / 0.5, 0, 1)) : 1, T = q.t; let step = 0.006;
+            if (q.o && e2 >= 1) { q.o = null; q.life = 2.5 + Math.random() * 3.5; }
+            if (q.o && e2 > 0) {                         // перелёт в новую сцену: линия тянется дугой и оставляет за собой штрих
+              const k = Math.sin(Math.PI * e2), ddx = q.to[0] - q.o[0], ddy = q.to[1] - q.o[1], px2 = mix(q.o[0], q.to[0], e2) - ddy * k * q.side, py2 = mix(q.o[1], q.to[1], e2) + ddx * k * q.side;
+              const vx = px2 - q.x, vy = py2 - q.y, vl = Math.hypot(vx, vy) || 1; q.dx = vx / vl; q.dy = vy / vl; q.x = px2; q.y = py2; q.hot = e2 < 0.5 ? q.hot0 : q.hot1; q.lvl = q.hot && q.band % 2 ? 2 : 1; q.age = 1; step = 0.009;   // в перелёте светится половина голубых линий, иначе всё сливается в пятно
+            } else {
+              const fld = q.o ? Fold : F, Z = !q.amb && q.inZone && fld.zone ? fld.zone : null, out = Math.max(0, -q.x, q.x - 1, -q.y, q.y - 1), zi = (x, y) => { const u = (x - Z.r[0]) / (Z.r[1] - Z.r[0]), v = (y - Z.r[2]) / (Z.r[3] - Z.r[2]); return u < 0 || u >= 1 || v < 0 || v >= 1 ? -1 : (v * Z.h | 0) * Z.w + (u * Z.w | 0); }, zm = (x, y) => { const i = zi(x, y); return i < 0 ? 0 : Z.mask[i] / 255; };
+              const c = at(q.x, q.y), th = out > 0 ? Math.sin(q.x * 3.1 + clock * 0.12) * 1.4 + Math.cos(q.y * 2.7 - clock * 0.09) * 1.2 : Z ? Z.ang[Math.max(0, zi(q.x, q.y))] / 255 * Math.PI : fld.ang[c] / 255 * Math.PI + Math.sin(clock * 0.6 + q.band) * 0.25; let ux = Math.cos(th), uy = Math.sin(th);
+              if (ux * q.dx + uy * q.dy < 0) { ux = -ux; uy = -uy; }
+              q.dx += (ux - q.dx) * 0.2; q.dy += (uy - q.dy) * 0.2; const sp = Z ? q.sp * Z.k : q.sp; q.x += q.dx * sp * dt; q.y += q.dy * sp * dt; q.life -= dt; q.age += dt; q.m = out > 0 ? 0.3 * Math.max(0, 1 - out / 0.34) : Z ? zm(q.x, q.y) : Math.max(q.amb ? 0.12 : 0, fld.mask[at(q.x, q.y)] / 255);   // за краем картинки линии не обрываются, а редеют и плывут дальше
+              if (Z) step = 0.006 * Z.k;
+              if (!q.o && (q.life <= 0 || out > 0 || q.m < (Z ? 0.2 : 0.06))) { const [x, y] = spawnAt(q, F); q.x = x; q.y = y; q.n = 1; T[0] = x; T[1] = y; q.life = Z ? 1.2 + Math.random() * 2 : 2.5 + Math.random() * 4; q.age = 0; q.dx = Math.random() - 0.5; q.dy = Math.random() - 0.5; }
+              if (!q.o) { q.hot = !q.amb && out === 0 && ((Z && F.hot.length) || F.hot.some((r) => q.x > r[0] && q.x < r[1] && q.y > r[2] && q.y < r[3])) ? 1 : 0; q.lvl = q.amb || out > 0 ? 0 : Z ? 2 : q.m > 0.6 ? 2 : q.m > 0.3 ? 1 : 0; if (!q.hot && q.lvl < 2 && F.bright.some((r) => q.x > r[0] && q.x < r[1] && q.y > r[2] && q.y < r[3])) q.lvl = q.m > 0.15 ? 2 : 1; if (!q.o && F.quiet.some((r) => q.x > r[0] && q.x < r[1] && q.y > r[2] && q.y < r[3])) { q.hot = 0; q.lvl = 0; } }   // второй герой сцены: ярче белым, но без голубого
+            }
+            const lx = T[(q.n - 1) * 2], ly = T[(q.n - 1) * 2 + 1];
+            if (Math.hypot(q.x - lx, q.y - ly) > step) { if (q.n < TRAIL) q.n++; else T.copyWithin(0, 2); T[(q.n - 1) * 2] = q.x; T[(q.n - 1) * 2 + 1] = q.y; }
+          }
+          if (q.hot !== hot || q.lvl !== lvl || q.n < 2 || q.age < 0.05) continue;
+          const e = inOut(clamp((morphK - clamp(q.x * 0.8 + 0.1 * Math.sin(q.y * 7) + 0.1, 0, 1) * 0.45) / 0.55, 0, 1)), T = q.t;
+          if (e < 0.97) {                                // по дороге из улицы линия остаётся прямым отрезком
+            const [sx1, sy1] = toScreen(q.src[0], q.src[1]), [sx2, sy2] = toScreen(q.src[2], q.src[3]);
+            arc(mix(sx1, bx + T[0] * size, e), mix(sy1, by + T[1] * size, e), mix(sx2, bx + T[(q.n - 1) * 2] * size, e), mix(sy2, by + T[(q.n - 1) * 2 + 1] * size, e), Math.sin(Math.PI * e) * (q.band % 2 ? 0.8 : -0.8));
+          } else { ctx.moveTo(bx + T[0] * size, by + T[1] * size); for (let k = 1; k < q.n; k++) ctx.lineTo(bx + T[k * 2] * size, by + T[k * 2 + 1] * size); }
+        }
+        ctx.strokeStyle = hot ? CYAN : WHITE; ctx.lineWidth = hot ? 1.3 : 1; ctx.globalAlpha = morphK * (hot ? [0.3, 0.6, 0.95][lvl] : [0.14, 0.34, 0.7][lvl]) * (F.img ? 0.55 : 1);
+        if (hot && lvl === 2) { ctx.shadowColor = CYAN; ctx.shadowBlur = 8; }
+        ctx.stroke(); ctx.shadowBlur = 0;
+      }
+      ctx.lineCap = 'butt'; ctx.lineJoin = 'miter'; ctx.globalAlpha = 1;
+    }
+
+    // точки и подписи без искажения камеры
+    const tags = [];
+    for (const o of orders) {
+      const [x, y] = toScreen(o.x, o.y), wait = Math.min(R.time + 12, Math.round(o.wait0 + o.age * 1.3));
+      const late = wait >= LATE_MIN, soon = wait >= SOON_MIN, col = o.taken ? CYAN : late ? LATE : WHITE;
+      const pop = o.born < 0 ? 1 : ease((clock - o.born) / 0.5), ph = (o.age % 2) / 2;
+      if (late && !o.taken) { ctx.strokeStyle = LATE; ctx.lineWidth = 1.5; ctx.globalAlpha = (1 - ph) * 0.8 * shift; ctx.beginPath(); ctx.arc(x, y, 6 + ph * 20, 0, 7); ctx.stroke(); }
+      if (pst === 2 && late && !o.taken) { ctx.strokeStyle = WHITE; ctx.lineWidth = 1.5; ctx.globalAlpha = (1 - pph) * pain * (1 - morphK); ctx.beginPath(); ctx.arc(x, y, 10 + pph * 46, 0, 7); ctx.stroke(); }
+      // булавка: кольцо и точка
+      ctx.globalAlpha = (o.taken ? 0.9 : late ? 1 : soon ? 0.75 : 0.4) * shift * pop;
+      const solid = late && !o.taken;
+      ctx.fillStyle = solid ? WHITE : BLACK; ctx.strokeStyle = col; ctx.lineWidth = solid ? 2 : 1.2; ctx.beginPath(); ctx.arc(x, y, (solid ? 6.5 : 5) * (2 - pop), 0, 7); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = solid ? BLACK : col; ctx.beginPath(); ctx.arc(x, y, 2, 0, 7); ctx.fill();
+      if (o.taken) { ctx.strokeStyle = CYAN; ctx.lineWidth = 1; ctx.globalAlpha = 0.5 * shift * read; ctx.beginPath(); ctx.arc(x, y, 11, 0, 7); ctx.stroke(); }
+      if (!o.taken && soon) tags.push({ x, y, wait, late });
+    }
+    // бирки с минутами: только у тех, кто ждёт дольше всех
+    tags.sort((a, b) => b.wait - a.wait);
+    ctx.font = `400 11px ${FONT}`; ctx.textBaseline = 'middle';
+    const placed = [];
+    for (const t of tags) {
+      if (placed.length >= 4) break;
+      if (placed.some((q) => Math.abs(q.x - t.x) < 90 && Math.abs(q.y - t.y) < 30)) continue;
+      placed.push(t);
+      ctx.shadowColor = BLACK; ctx.shadowBlur = 6; ctx.globalAlpha = (t.late ? 0.9 : 0.5) * shift * read; ctx.fillStyle = WHITE;   // подпись без плашки: тихая, ярче только у опоздавших
+      ctx.fillText(`${t.wait}${NB}мин`, t.x + 12, t.y - 12); ctx.shadowBlur = 0;
+    }
+    for (const f of flashes) { const [x, y] = toScreen(f.x, f.y); ctx.strokeStyle = CYAN; ctx.lineWidth = 1.5; ctx.globalAlpha = (1 - f.t / 0.7) * shift; ctx.beginPath(); ctx.arc(x, y, 4 + f.t * 50, 0, 7); ctx.stroke(); }
+    for (const a of agents) {
+      if (!a.on || !a.path) continue;
+      const [x, y] = toScreen(a.x, a.y), go = a.state === 'go', n = a.path[Math.min(a.path.length - 1, a.seg + 1)];
+      const [tx, ty] = toScreen(nx(n), ny(n)); if (Math.hypot(tx - x, ty - y) > 0.5) a.head = Math.atan2(ty - y, tx - x);
+      const ang = a.head || 0;
+      if (pst === 1) { ctx.strokeStyle = CYAN; ctx.lineWidth = 1.5; ctx.globalAlpha = (1 - pph) * pain * (1 - morphK); ctx.beginPath(); ctx.arc(x, y, 10 + pph * 40, 0, 7); ctx.stroke(); }
+      if (read < 0.98) { ctx.globalAlpha = shift * (1 - read); ctx.fillStyle = CYAN; ctx.shadowColor = CYAN; ctx.shadowBlur = 12; ctx.beginPath(); ctx.arc(x, y, 2.8, 0, 7); ctx.fill(); ctx.shadowBlur = 0; }
+      if (read < 0.02) continue;
+      const r = 3 + 5 * read;
+      ctx.globalAlpha = shift * read; ctx.lineWidth = 1.5; ctx.strokeStyle = CYAN; ctx.fillStyle = go ? CYAN : BLACK;
+      if (go) { ctx.globalAlpha = 0.16 * shift * read; ctx.beginPath(); ctx.arc(x, y, r + 7, 0, 7); ctx.fill(); ctx.globalAlpha = shift * read; }
+      ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.save(); ctx.translate(x, y); ctx.rotate(ang); ctx.scale(r / 8, r / 8); ctx.fillStyle = go ? BLACK : CYAN;
+      ctx.beginPath(); ctx.moveTo(4.2, 0); ctx.lineTo(-2.6, -3.4); ctx.lineTo(-1, 0); ctx.lineTo(-2.6, 3.4); ctx.closePath(); ctx.fill(); ctx.restore();
+    }
+
+    if (pst === 0) for (const k of [0, 0.5]) { const q = (pph + k) % 1; ctx.strokeStyle = WHITE; ctx.lineWidth = 1.5; ctx.globalAlpha = (1 - q) * pain * (1 - morphK); ctx.beginPath(); ctx.arc(kxs, kys, 14 + q * 70, 0, 7); ctx.stroke(); }
+    const pulse = (clock % 3) / 3;
+    const km = 1 - smooth(morphK * 1.5);                    // пока идёт сцена, значок кухни прячется
+    ctx.strokeStyle = WHITE; ctx.lineWidth = 1; ctx.globalAlpha = (1 - pulse) * 0.4 * km; ctx.beginPath(); ctx.arc(kxs, kys, 12 + pulse * 34, 0, 7); ctx.stroke();
+    ctx.globalAlpha = km; ctx.fillStyle = BLACK; ctx.lineWidth = 1.5; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(kxs - 9, kys - 9, 18, 18, 4.4); else ctx.rect(kxs - 9, kys - 9, 18, 18); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = WHITE; ctx.beginPath(); ctx.arc(kxs, kys, 2.5, 0, 7); ctx.fill();
+    label('Кухня', kxs + 18, kys, 0.5 * (1 - sys) * km * (1 - moveK));
+    if (moveK > 0.02) {                                  // сеть переходит на систему: от головной кухни к точкам тянутся линии, точка загорается
+      net.forEach((o, i) => {
+        const [x, y] = toScreen(o.x, o.y), k = clamp((dayF - (1.5 + i * 18.5 / (net.length - 1))) / 1.4, 0, 1), on = k >= 1;
+        if (k > 0) { const e = ease(k); ctx.strokeStyle = CYAN; ctx.lineWidth = 1.2; ctx.globalAlpha = 0.55 * moveK; ctx.beginPath(); ctx.moveTo(kxs, kys); ctx.lineTo(mix(kxs, x, e), mix(kys, y, e)); ctx.stroke(); }
+        if (k > 0.6 && k < 1 || on && dayF - (1.5 + i * 18.5 / (net.length - 1)) < 3.2) { const q = clamp((dayF - (1.5 + i * 18.5 / (net.length - 1)) - 0.9) / 2.3, 0, 1); ctx.strokeStyle = CYAN; ctx.lineWidth = 1.5; ctx.globalAlpha = (1 - q) * moveK; ctx.beginPath(); ctx.arc(x, y, 9 + q * 30, 0, 7); ctx.stroke(); }
+        ctx.globalAlpha = moveK * (on ? 1 : 0.5); ctx.fillStyle = on ? CYAN : BLACK; ctx.strokeStyle = on ? CYAN : WHITE; ctx.lineWidth = 1.3;
+        ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x - 6, y - 6, 12, 12, 3); else ctx.rect(x - 6, y - 6, 12, 12); ctx.fill(); ctx.stroke();
+        if (on) { ctx.fillStyle = BLACK; ctx.beginPath(); ctx.arc(x, y, 1.8, 0, 7); ctx.fill(); }
+      });
+      ctx.globalAlpha = 1;
+    }
+
+    if (sys > 0.02) {
+      const [gx, gy] = toScreen(nx(demoNode), ny(demoNode)), st = stage, local = st >= 0 ? clamp((demoT - STAGE[st]) / 0.5, 0, 1) : 0;
+      // гость: точка заказа
+      const gp = (clock % 1.6) / 1.6; ctx.strokeStyle = st === 3 ? CYAN : WHITE; ctx.lineWidth = 1.5; ctx.globalAlpha = (1 - gp) * sys * (st === 0 || st === 3 ? 1 : 0.4); ctx.beginPath(); ctx.arc(gx, gy, 6 + gp * (st === 3 ? 46 : 22), 0, 7); ctx.stroke();
+      ctx.globalAlpha = sys; ctx.fillStyle = WHITE; ctx.beginPath(); ctx.arc(gx, gy, 4.5, 0, 7); ctx.fill();
+      // кухня готовит: кольцо заполняется
+      if (st === 1) { const k = clamp((demoT - STAGE[1]) / (STAGE[2] - STAGE[1]), 0, 1); ctx.strokeStyle = CYAN; ctx.lineWidth = 3; ctx.globalAlpha = sys; ctx.shadowColor = CYAN; ctx.shadowBlur = 14; ctx.beginPath(); ctx.arc(kxs, kys, 22, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2); ctx.stroke(); ctx.shadowBlur = 0; }
+      if (demoHead && st === 2) { const [hx, hy] = toScreen(demoHead[0], demoHead[1]); ctx.fillStyle = CYAN; ctx.globalAlpha = sys; ctx.shadowColor = CYAN; ctx.shadowBlur = 24; ctx.beginPath(); ctx.arc(hx, hy, 6, 0, 7); ctx.fill(); ctx.shadowBlur = 0; }
+      const a = sys * ease(local);
+      if (st === 0) {                                    // заказ: от гостя на кухню по дуге летит сигнал, за ним тянется след
+        const k0 = inOut(clamp((demoT - STAGE[0] - 0.25) / (STAGE[1] - STAGE[0] - 0.35), 0, 1)), cx0 = (gx + kxs) / 2 - (kys - gy) * 0.28, cy0 = (gy + kys) / 2 + (kxs - gx) * 0.28;
+        const at0 = (t) => [(1 - t) * (1 - t) * gx + 2 * (1 - t) * t * cx0 + t * t * kxs, (1 - t) * (1 - t) * gy + 2 * (1 - t) * t * cy0 + t * t * kys];
+        ctx.strokeStyle = WHITE; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.7 * sys; ctx.beginPath(); ctx.moveTo(gx, gy); for (let i = 1; i <= 28; i++) { const [x, y] = at0(k0 * i / 28); ctx.lineTo(x, y); } ctx.stroke();
+        const [ox2, oy2] = at0(k0); ctx.fillStyle = WHITE; ctx.globalAlpha = sys; ctx.shadowColor = WHITE; ctx.shadowBlur = 16; ctx.beginPath(); ctx.arc(ox2, oy2, 4.5, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+        if (k0 > 0.92) { const f = (k0 - 0.92) / 0.08; ctx.strokeStyle = WHITE; ctx.lineWidth = 1.5; ctx.globalAlpha = (1 - f) * sys; ctx.beginPath(); ctx.arc(kxs, kys, 14 + f * 30, 0, 7); ctx.stroke(); }
+        label('Заказ из приложения', gx + 16, gy, a);
+      }
+      if (st === 1) label('Кухня готовит', kxs + 34, kys, a, CYAN);
+      if (st === 2 && demoHead) { const [hx, hy] = toScreen(demoHead[0], demoHead[1]); label('Курьер в пути', hx + 16, hy - 14, a, CYAN); }
+      if (st === 3) label('Гость получил заказ', gx + 16, gy, a, CYAN);
+      if (st === 4) {                                    // деньги: от гостя к кухне бежит импульс, потом у точек сети вырастают столбики
+        const k4 = clamp((demoT - STAGE[4]) / (STAGE[5] - STAGE[4]), 0, 1), back = clamp(k4 / 0.35, 0, 1), grow = ease(clamp((k4 - 0.25) / 0.5, 0, 1));
+        if (back < 1) { const [mx2, my2] = demoPoint(1 - back), [sx, sy] = toScreen(mx2, my2); ctx.fillStyle = CYAN; ctx.globalAlpha = sys; ctx.shadowColor = CYAN; ctx.shadowBlur = 20; ctx.beginPath(); ctx.arc(sx, sy, 5, 0, 7); ctx.fill(); ctx.shadowBlur = 0; }
+        const bar = (x, y, v, main) => {
+          const hh = (main ? 74 : 56) * v * grow; ctx.globalAlpha = sys; ctx.fillStyle = BLACK; ctx.strokeStyle = main ? CYAN : WHITE; ctx.lineWidth = 1.5;
+          ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x - 5, y - 10 - hh, 10, hh + 2, 3); else ctx.rect(x - 5, y - 10 - hh, 10, hh + 2); ctx.fill(); ctx.stroke();
+          ctx.fillStyle = main ? CYAN : WHITE; ctx.globalAlpha = sys * (main ? 0.9 : 0.5); ctx.fillRect(x - 3, y - 8 - hh, 6, Math.max(0, hh - 2));
+          ctx.globalAlpha = sys * grow; ctx.fillStyle = BLACK; ctx.strokeStyle = WHITE; ctx.lineWidth = 1.2; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x - 6, y - 6, 12, 12, 3); else ctx.rect(x - 6, y - 6, 12, 12); ctx.fill(); ctx.stroke();
+        };
+        for (const o of outlets) { const [x, y] = toScreen(o.x, o.y); bar(x, y, o.v, false); }
+        bar(kxs, kys - 14, 1, true);
+        label('Выручка по точкам', kxs + 34, kys - 40, a, CYAN);
+      }
+    }
+
+    if (weatherLevel > 0.02) {
+      ctx.strokeStyle = WHITE; ctx.fillStyle = WHITE; ctx.lineWidth = 1; const snow = state.weather === 'snow';
+      for (const s of streaks) {
+        const k = snow ? 0.12 : 1; s.y += s.speed * k * dt; s.x -= s.speed * k * 0.22 * dt + (snow ? s.drift * dt : 0);
+        if (s.y > h + 40) { s.y = -40; s.x = Math.random() * (w + 300) - 100; }
+        ctx.globalAlpha = s.a * weatherLevel * (1 - sys * 0.6);
+        if (snow) { ctx.beginPath(); ctx.arc(s.x, s.y, 1.4, 0, 7); ctx.fill(); } else { ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(s.x - s.len * 0.22, s.y + s.len); ctx.stroke(); }
+      }
+    }
+    ctx.globalAlpha = 1;
+    requestAnimationFrame(frame);
+  }
+
+  // заявка: каждое поле проверяется само и говорит, что не так; форма ничего не отправляет
+  // меню разделов на узких экранах: открывается поверх страницы, по пункту летим к разделу и закрываем
+  const menu = document.getElementById('menu'), menuBtn = document.getElementById('menuBtn');
+  const setMenu = (open) => {
+    menuBtn.setAttribute('aria-expanded', String(open)); menuBtn.setAttribute('aria-label', open ? 'Закрыть разделы' : 'Разделы');
+    const br = menuBtn.getBoundingClientRect(); menu.style.setProperty('--mx', `${br.left + br.width / 2}px`); menu.style.setProperty('--my', `${br.top + br.height / 2}px`);   // круг раскрывается из самой кнопки
+    if (open) { menu.hidden = false; requestAnimationFrame(() => menu.classList.add('is-open')); document.documentElement.style.overflow = 'hidden'; menu.focus({ preventScroll: true }); }   // фокус на само меню: Tab дальше идёт по пунктам, а рамка не вспыхивает на первом
+    else { menu.classList.remove('is-open'); document.documentElement.style.overflow = ''; setTimeout(() => { if (!menu.classList.contains('is-open')) menu.hidden = true; }, 620); }
+  };
+  menuBtn.addEventListener('click', () => setMenu(menu.hidden));
+  menu.querySelectorAll('a').forEach((a) => a.addEventListener('click', () => setMenu(false), true));
+  addEventListener('keydown', (e) => { if (e.key === 'Escape' && !menu.hidden) { setMenu(false); menuBtn.focus(); } });
+  const lead = document.getElementById('leadForm'), leadMsg = document.getElementById('leadMsg'), leadBtn = document.getElementById('leadBtn');
+  const digits = (v) => v.replace(/\D/g, '');
+  // тексты ошибок — как в форме на goulash.tech (их Contact Form 7), без точки в конце
+  const NEED = 'Важно заполнить это поле', LONG = 'В это поле вставлен слишком большой объем данных';
+  const RULES = {
+    name: (v) => !v.trim() ? NEED : v.length > 400 ? LONG : '',
+    phone: (v) => { const d = digits(v); return !d || d === '7' ? NEED : d.length !== 11 ? 'Введите номер телефона' : ''; },
+    city: (v) => !v.trim() ? NEED : v.length > 400 ? LONG : '',
+    points: (v) => !v.trim() ? NEED : !/^\d{1,5}$/.test(v.trim()) || +v < 1 ? 'Введите число' : '',
+    brand: (v) => !v.trim() ? NEED : v.length > 400 ? LONG : '',
+    agree: (v, el) => el.checked ? '' : NEED,
+  };
+  ['name', 'city'].forEach((n) => lead[n].addEventListener('input', () => { const v = lead[n].value.replace(/[^А-Яа-яЁёA-Za-z\s-]/g, ''); if (v !== lead[n].value) lead[n].value = v; }));   // как у них: в имени и городе только буквы, пробел и дефис
+  lead.points.addEventListener('input', () => { const v = lead.points.value.replace(/\D/g, '').slice(0, 5); if (v !== lead.points.value) lead.points.value = v; });
+  const check = (el) => { const msg = RULES[el.name](el.value, el), out = document.getElementById('e-' + el.name); el.setAttribute('aria-invalid', String(!!msg)); out.textContent = msg; out.hidden = !msg; return !msg; };
+  lead.phone.addEventListener('input', () => {             // телефон собирается в привычный вид по мере ввода
+    let d = digits(lead.phone.value); if (d[0] === '8') d = '7' + d.slice(1); if (d && d[0] !== '7') d = '7' + d; d = d.slice(0, 11);
+    lead.phone.value = d ? '+7' + (d.length > 1 ? ' ' + d.slice(1, 4) : '') + (d.length > 4 ? ' ' + d.slice(4, 7) : '') + (d.length > 7 ? '-' + d.slice(7, 9) : '') + (d.length > 9 ? '-' + d.slice(9, 11) : '') : '';
+  });
+  Object.keys(RULES).forEach((name) => { const el = lead[name];
+    el.addEventListener(el.type === 'checkbox' ? 'change' : 'blur', () => check(el));
+    el.addEventListener('input', () => { if (el.getAttribute('aria-invalid') === 'true') check(el); }); });
+  lead.addEventListener('submit', (e) => {
+    e.preventDefault(); leadMsg.hidden = true;
+    const bad = Object.keys(RULES).map((n) => lead[n]).filter((el) => el.offsetParent !== null && !check(el));   // проверяем только поля, которые есть в выбранном варианте
+    if (bad.length) { bad[0].focus(); return; }
+    leadBtn.disabled = true; leadBtn.classList.add('is-loading'); lead.setAttribute('aria-busy', 'true');   // загрузка: на кнопке крутится лоадер
+    setTimeout(() => {                                     // имитация отправки
+      leadBtn.disabled = false; leadBtn.classList.remove('is-loading'); lead.removeAttribute('aria-busy');
+      if (new URLSearchParams(location.search).has('fail')) { leadMsg.textContent = 'При отправке сообщения произошла ошибка. Пожалуйста, попробуйте еще раз позже'; leadMsg.hidden = false; leadBtn.focus(); return; }
+      const done = document.getElementById('leadDone'); document.getElementById('leadFields').style.display = 'none'; done.hidden = false; done.focus({ preventScroll: true });
+      setTimeout(() => {                                   // как у них: через пять секунд форма возвращается пустой
+        lead.reset(); window.__offer(); lead.querySelectorAll('[aria-invalid]').forEach((el) => el.removeAttribute('aria-invalid')); lead.querySelectorAll('.err').forEach((el) => { el.hidden = true; });
+        done.hidden = true; document.getElementById('leadFields').style.display = 'contents';
+      }, 5000);
+    }, 1100);
+  });
+  // варианты оффера: заголовок может продолжать пульт, а число точек — выбираться кнопкой
+  const leadH = document.getElementById('leadH'), leadSub = document.getElementById('leadSub');
+  function renderOffer() {
+    const v = document.body.dataset.offer || 'a', changed = R.couriers !== R0.couriers || state.rate !== M.START.rate || state.bonus !== M.START.bonus || state.weatherPay !== M.START.weatherPay;
+    const fromConsole = changed ? `На${NB}вашем пульте вышли ${R.couriers} из${NB}${R.total} курьеров` : `Сейчас на${NB}смене ${R.couriers} из${NB}${R.total} курьеров`;
+    const T = {
+      a: [`Разберем ваш кейс за${NB}15${NB}минут`, `Покажем на${NB}ваших цифрах, что изменится в${NB}час пик`],
+      b: [fromConsole, changed ? `Посчитаем то${NB}же на${NB}ваших точках и${NB}ставках` : `Посчитаем, сколько выйдет у${NB}вас, если поднять оплату`],
+      c: [`Покажем пульт на${NB}вашей сети`, `Оставьте номер${NB}— перезвоним и${NB}за${NB}15${NB}минут пройдем по${NB}вашим точкам`],
+      d: [`Сколько у${NB}вас точек?`, `Один ответ${NB}— и${NB}посчитаем оплату курьеров для сети вашего размера`],
+      e: [fromConsole, changed ? `Посчитаем то${NB}же на${NB}ваших точках и${NB}ставках` : `Посчитаем, сколько выйдет у${NB}вас, если поднять оплату`],
+    }[v] || [];
+    leadH.textContent = T[0]; leadSub.textContent = T[1];
+  }
+  window.__offer = () => { lead.classList.remove('picked'); lead.querySelectorAll('.chips button').forEach((b) => b.setAttribute('aria-pressed', 'false')); renderOffer(); };
+  lead.querySelectorAll('.chips button').forEach((b) => b.addEventListener('click', () => { lead.querySelectorAll('.chips button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); lead.points.value = b.dataset.v; lead.classList.add('picked'); lead.name.focus({ preventScroll: true }); }));
+  renderOffer();
+  const form = document.getElementById('f'), foldBtn = document.getElementById('fold');
+  foldBtn.addEventListener('click', () => { const f = folded = form.classList.toggle('is-folded'); foldBtn.setAttribute('aria-expanded', String(!f)); foldBtn.setAttribute('aria-label', f ? 'Развернуть пульт' : 'Свернуть пульт'); });
+  form.addEventListener('input', () => { state.weather = new FormData(form).get('weather'); state.rate = +form.rate.value; state.bonus = form.bonus.checked; state.weatherPay = form.weatherPay.checked; apply(); });
+  form.addEventListener('reset', () => setTimeout(() => form.dispatchEvent(new Event('input'))));
+  form.addEventListener('submit', (e) => e.preventDefault());
+  addEventListener('pointermove', (e) => { tmx = e.clientX; tmy = e.clientY; if (!hasMouse) { mx = tmx; my = tmy; hasMouse = true; } });
+  document.addEventListener('pointerleave', () => { hasMouse = false; });
+  // доводка: начал крутить — страница сама плавно доезжает до ближайшей главы
+  let lastY = window.scrollY, dir = 1, idle = 0, gliding = 0;
+  let glideIdx = -1, glideFrom = -1, gk = 0;
+  const inGlide = () => gliding && glideIdx >= 0 && glideFrom >= 0 && glideIdx !== glideFrom;
+  // в перелёте по шапке все эффекты видят только две главы — откуда и куда летим — и плавно перетекают между ними; главы по пути не вспыхивают
+  function near(i, p) { return inGlide() ? (i === glideFrom ? 1 - gk : i === glideIdx ? gk : 0) : smooth(1 - Math.abs(p - i) * 2.2); }                                   // глава, к которой летим по ссылке: сцены по пути не собираются
+  function glideTo(y) {
+    cancelAnimationFrame(gliding);
+    const from = window.scrollY, dist = y - from, t0 = performance.now();
+    if (Math.abs(dist) < 2) return;
+    glideIdx = chapters.findIndex((c) => Math.abs(c.offsetTop - y) < 4); glideFrom = Math.round(scrollPos);
+    const p0 = scrollPos, steps = glideIdx >= 0 ? Math.abs(glideIdx - p0) : Math.abs(dist) / (h * 2.2), dur = clamp(800 + 520 * Math.max(0, steps - 1), 800, 2200);   // одна глава — 0,8 с, каждая следующая добавляет полсекунды
+    const tick = (now) => {
+      const t = clamp((now - t0) / dur, 0, 1), e = 0.5 - 0.5 * Math.cos(Math.PI * t);   // синусоида: мягкий разгон и торможение, без рывка в середине
+      window.scrollTo(0, from + dist * e);
+      if (glideIdx >= 0) scrollTarget = mix(p0, glideIdx, e);   // камера летит ровно, без остановок на промежуточных главах
+      if (t < 1) gliding = requestAnimationFrame(tick); else { gliding = 0; glideIdx = -1; glideFrom = -1; gk = 0; readScroll(); }
+    };
+    gliding = requestAnimationFrame(tick);
+  }
+  function settle() {
+    if (reduced || gliding) return;
+    const y = window.scrollY, tops = chapters.map((c) => c.offsetTop);
+    let i = 0; while (i < tops.length - 1 && y >= tops[i + 1]) i++;
+    if (i === tops.length - 1) return;                              // последняя глава крутится свободно
+    const k = (y - tops[i]) / (tops[i + 1] - tops[i]);
+    if (k < 0.02) return;
+    glideTo(dir > 0 ? (k > 0.04 ? tops[i + 1] : tops[i]) : (k < 0.96 ? tops[i] : tops[i + 1]));
+  }
+  document.querySelectorAll('a[href^="#"]').forEach((el) => el.addEventListener('click', (e) => { const t = document.querySelector(el.getAttribute('href')); if (!t) return; e.preventDefault(); if (reduced) window.scrollTo(0, t.offsetTop); else glideTo(t.offsetTop); }));
+  const stopGlide = () => { if (!gliding) return; cancelAnimationFrame(gliding); gliding = 0; glideIdx = -1; glideFrom = -1; readScroll(); };
+  addEventListener('wheel', stopGlide, { passive: true }); addEventListener('touchstart', stopGlide, { passive: true }); addEventListener('keydown', stopGlide);
+  addEventListener('scroll', () => {
+    const y = window.scrollY; if (y !== lastY) dir = y > lastY ? 1 : -1; lastY = y;
+    readScroll(); clearTimeout(idle); if (!gliding) idle = setTimeout(settle, 130);
+  }, { passive: true });
+  addEventListener('resize', () => { resize(); readScroll(); });
+  resize(); apply(); rollStats(true); zone = zoneTarget; radiiTarget.set(zoneShape(zone)); radii.set(radiiTarget);
+  for (let i = 0; i < backlog; i++) spawn(Math.random() * 14);
+  readScroll(); scrollPos = scrollTarget; applyChapters();
+  { const pin = new URLSearchParams(location.search).get('pin'), idx = chapters.findIndex((c) => c.id === pin); if (idx >= 0) { document.body.classList.add('pin'); intro = 1; scrollTarget = scrollPos = idx; readScroll = () => {}; applyChapters(); } }   // ?pin=console показывает одну главу без прокрутки — для снимков
+  if (SHOT !== null) { document.body.classList.add('shot'); intro = 1; scrollTarget = scrollPos = +SHOT; readScroll = () => {}; demoT = 4.4; for (let i = 0; i < 900; i++) { agents.forEach((a) => step(a, 0.033)); } flashes.length = 0; }
+  window.__flow = { get cam() { return { ...cam }; }, get eve() { return eve; }, set eve(v) { eve = +v; setPoses(); }, get pos() { return +scrollPos.toFixed(2); }, get stage() { return demoStage; }, get active() { return agents.filter((a) => a.on).length; }, demoLen: Math.round(demoLen), pool: pool.length };
+  requestAnimationFrame(frame);
+})();

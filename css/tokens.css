@@ -1,0 +1,99 @@
+/* Goulash.tech — design tokens
+   Источник цветов и шрифта: brand/goulash-identity-2023.pdf (краткое руководство по айдентике, 2023)
+   Зеркало Figma-файла Goulash_Test (v1L4rMLzfSPjV6zMOZekba). Обновлено: 2026-10-08
+
+   Примитивы — сырая палитра, в разметке напрямую не использовать.
+   Семантика — то, чем красим. Она ссылается на примитивы.
+   Из гайда: Black, White, Cyan/*, шрифт Onest.
+   Решения системы (в гайде их нет): alpha/*, семантика, шкала кеглей, отступы, радиусы.
+*/
+
+@import url("https://fonts.googleapis.com/css2?family=Onest:wght@400;500&display=swap");
+
+:root {
+  /* ---------- primitives ---------- */
+  --black: #000000;
+  --white: #ffffff;
+  --cyan-100: #ccffff; /* полутон: фон макетов, hover кнопок */
+  --cyan-200: #99ffff; /* полутон: фон макетов, hover кнопок */
+  --cyan-300: #66ffff; /* полутон: фон макетов, hover кнопок */
+  --cyan-500: #00ffff; /* акцент; как фон — только в знаке логотипа */
+  --alpha-black10: #0000001a;
+  --alpha-black60: #00000099;
+  --alpha-white10: #ffffff1a;
+  --alpha-white60: #ffffff99;
+
+  /* ---------- semantic: Light ---------- */
+  --color-bg-base: var(--white);
+  --color-bg-subtle: var(--cyan-100);
+  --color-text-primary: var(--black);
+  --color-text-secondary: var(--alpha-black60);
+  --color-text-accent: var(--black);
+  --color-accent-primary: var(--cyan-500);
+  --color-border-subtle: var(--alpha-black10);
+  --color-btn-primary-bg: var(--black);
+  --color-btn-primary-hover: var(--cyan-300);
+
+  /* ---------- typography: Desktop ---------- */
+  --font-family-base: "Onest", system-ui, sans-serif;
+  --font-weight-regular: 400; /* весь текст */
+  --font-weight-medium: 500;  /* только логотип */
+  --typography-display-font-size: 96px;
+  --typography-display-line-height: 96px;
+  --typography-h1-font-size: 64px;
+  --typography-h1-line-height: 68px;
+  --typography-h2-font-size: 44px;
+  --typography-h2-line-height: 52px;
+  --typography-h3-font-size: 32px;
+  --typography-h3-line-height: 40px;
+  --typography-body-large-font-size: 20px;
+  --typography-body-large-line-height: 28px;
+  --typography-body-font-size: 16px;
+  --typography-body-line-height: 24px;
+  --typography-caption-font-size: 13px;
+  --typography-caption-line-height: 18px;
+
+  /* ---------- size ---------- */
+  --spacing-4: 4px;
+  --spacing-8: 8px;
+  --spacing-12: 12px;
+  --spacing-16: 16px;
+  --spacing-24: 24px;
+  --spacing-32: 32px;
+  --spacing-48: 48px;
+  --spacing-64: 64px;
+  --spacing-96: 96px;
+  --radius-none: 0px;
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-full: 9999px;
+}
+
+/* ---------- semantic: Dark ---------- */
+[data-theme="dark"] {
+  --color-bg-base: var(--black);
+  --color-bg-subtle: var(--alpha-white10);
+  --color-text-primary: var(--white);
+  --color-text-secondary: var(--alpha-white60);
+  --color-text-accent: var(--cyan-500);
+  --color-accent-primary: var(--cyan-500);
+  --color-border-subtle: var(--alpha-white10);
+  --color-btn-primary-bg: var(--white);
+  --color-btn-primary-hover: var(--cyan-300);
+}
+
+/* ---------- typography: Mobile ---------- */
+@media (max-width: 767px) {
+  :root {
+    --typography-display-font-size: 48px;
+    --typography-display-line-height: 52px;
+    --typography-h1-font-size: 40px;
+    --typography-h1-line-height: 44px;
+    --typography-h2-font-size: 32px;
+    --typography-h2-line-height: 38px;
+    --typography-h3-font-size: 24px;
+    --typography-h3-line-height: 30px;
+    --typography-body-large-font-size: 18px;
+    --typography-body-large-line-height: 26px;
+  }
+}
