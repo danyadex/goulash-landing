@@ -310,7 +310,11 @@
   const momentEls = Array.from(document.querySelectorAll('#moments li')), MOMENT = 3.9; let painT = 0, painStage = -1; const SCENE_FIX = +(new URLSearchParams(location.search).get('scene') ?? -1);
   const stepEls = Array.from(document.querySelectorAll('#steps li')), STAGE = [0, 1.4, 2.8, 6.2, 7.6, 9.2]; stepEls.forEach((el, i) => el.style.setProperty('--dur', (STAGE[i + 1] - STAGE[i]) + 's'));
   let demoT = 0, demoStage = -1;
-  function label(text, x, y, alpha, color) { if (!(alpha > 0.003)) return; ctx.font = `400 12px ${FONT}`; ctx.textBaseline = 'middle'; ctx.shadowColor = BLACK; ctx.shadowBlur = 8; ctx.globalAlpha = alpha; ctx.fillStyle = color || WHITE; ctx.fillText(text, x, y); ctx.shadowBlur = 0; }
+  function label(text, x, y, alpha, color, ax) {          // ax — точка, к которой подпись; на телефоне подпись встаёт слева от неё, чтобы не уходить за край
+    if (!(alpha > 0.003)) return; ctx.font = `400 12px ${FONT}`; ctx.textBaseline = 'middle'; ctx.shadowColor = BLACK; ctx.shadowBlur = 8; ctx.globalAlpha = alpha; ctx.fillStyle = color || WHITE;
+    if (!wide && ax !== undefined) { const lx = ax - (x - ax), tw = ctx.measureText(text).width; if (lx - tw >= 12) { ctx.textAlign = 'right'; ctx.fillText(text, lx, y); ctx.textAlign = 'left'; ctx.shadowBlur = 0; return; } x = Math.min(x, w - 12 - tw); }
+    ctx.fillText(text, x, y); ctx.shadowBlur = 0;
+  }
 
   let last = performance.now(), spawnT = 0;
   function frame(now) {
@@ -530,7 +534,7 @@
       if (placed.some((q) => Math.abs(q.x - t.x) < 90 && Math.abs(q.y - t.y) < 30)) continue;
       placed.push(t);
       ctx.shadowColor = BLACK; ctx.shadowBlur = 6; ctx.globalAlpha = (t.late ? 0.9 : 0.5) * shift * read; ctx.fillStyle = WHITE;   // подпись без плашки: тихая, ярче только у опоздавших
-      ctx.fillText(`${t.wait}${NB}мин`, t.x + 12, t.y - 12); ctx.shadowBlur = 0;
+      { const txt = `${t.wait}${NB}мин`, tw = ctx.measureText(txt).width, left = t.x + 12 + tw > w - 8; ctx.textAlign = left ? 'right' : 'left'; ctx.fillText(txt, left ? t.x - 12 : t.x + 12, t.y - 12); ctx.textAlign = 'left'; } ctx.shadowBlur = 0;   // у края бирка встаёт слева от точки
     }
     for (const f of flashes) { const [x, y] = toScreen(f.x, f.y); ctx.strokeStyle = CYAN; ctx.lineWidth = 1.5; ctx.globalAlpha = (1 - f.t / 0.7) * shift; ctx.beginPath(); ctx.arc(x, y, 4 + f.t * 50, 0, 7); ctx.stroke(); }
     for (const a of agents) {
@@ -586,11 +590,11 @@
         ctx.strokeStyle = WHITE; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.7 * sys; ctx.beginPath(); ctx.moveTo(gx, gy); for (let i = 1; i <= 28; i++) { const [x, y] = at0(k0 * i / 28); ctx.lineTo(x, y); } ctx.stroke();
         const [ox2, oy2] = at0(k0); ctx.fillStyle = WHITE; ctx.globalAlpha = sys; ctx.shadowColor = WHITE; ctx.shadowBlur = 16; ctx.beginPath(); ctx.arc(ox2, oy2, 4.5, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
         if (k0 > 0.92) { const f = (k0 - 0.92) / 0.08; ctx.strokeStyle = WHITE; ctx.lineWidth = 1.5; ctx.globalAlpha = (1 - f) * sys; ctx.beginPath(); ctx.arc(kxs, kys, 14 + f * 30, 0, 7); ctx.stroke(); }
-        label('Заказ из приложения', gx + 16, gy, a);
+        label('Заказ из приложения', gx + 16, gy, a, WHITE, gx);
       }
-      if (st === 1) label('Кухня готовит', kxs + 20, kys - 26, a, CYAN);
-      if (st === 2 && demoHead) { const [hx, hy] = toScreen(demoHead[0], demoHead[1]); label('Курьер в пути', hx + 16, hy - 14, a, CYAN); }
-      if (st === 3) label('Гость получил заказ', gx + 16, gy, a, CYAN);
+      if (st === 1) label('Кухня готовит', kxs + 20, kys - 26, a, CYAN, kxs);
+      if (st === 2 && demoHead) { const [hx, hy] = toScreen(demoHead[0], demoHead[1]); label('Курьер в пути', hx + 16, hy - 14, a, CYAN, hx); }
+      if (st === 3) label('Гость получил заказ', gx + 16, gy, a, CYAN, gx);
       if (st === 4) {                                    // деньги: от гостя к кухне бежит импульс, потом у точек сети вырастают столбики
         const k4 = clamp((demoT - STAGE[4]) / (STAGE[5] - STAGE[4]), 0, 1), back = clamp(k4 / 0.35, 0, 1), grow = ease(clamp((k4 - 0.25) / 0.5, 0, 1));
         if (back < 1) { const [mx2, my2] = demoPoint(1 - back), [sx, sy] = toScreen(mx2, my2); ctx.fillStyle = CYAN; ctx.globalAlpha = sys; ctx.shadowColor = CYAN; ctx.shadowBlur = 20; ctx.beginPath(); ctx.arc(sx, sy, 5, 0, 7); ctx.fill(); ctx.shadowBlur = 0; }
@@ -602,7 +606,7 @@
         };
         for (const o of outlets) { const [x, y] = toScreen(o.x, o.y); bar(x, y, o.v, false); }
         bar(kxs, kys - 14, 1, true);
-        label('Выручка по точкам', kxs + 34, kys - 40, a, CYAN);
+        label('Выручка по точкам', kxs + 34, kys - 40, a, CYAN, kxs);
       }
     }
 
