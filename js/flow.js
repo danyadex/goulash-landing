@@ -94,25 +94,20 @@
   let w = 0, h = 0, ratio = 1, wide = true, temp = null, tctx = null, spot = null, sctx = null;
   const SPOT = 200;
   const cam = { zoom: 1, ox: 0, oy: 0, rot: 0, tilt: 1 };
-  // ручки гранулярного портрета, крутятся на странице с ?grain
+  // параметры портрета из зерен
   const GP = { pic: 0.6, n: 218000, gamma: 3.3, dot: 0.5, jitter: 15, floor: 0.74, shimmer: 0.22, band: 0.25, speed: 0.12, reach: 0.24, push: 3.5, dust: 3200, far: 1.1 };   // значения выставил Даниил 13.10; dust и far — россыпь вокруг портрета
-  window.__grain = { get: (k) => GP[k], set: (k, v) => { GP[k] = +v; if (k === 'n' || k === 'gamma' || k === 'dust' || k === 'far') { clearTimeout(window.__grain.t); window.__grain.t = setTimeout(() => fields.forEach((f) => f && f.regrain && f.regrain()), 120); } } };
-  const GRAIN = !new URLSearchParams(location.search).has('lines');   // портрет из голубых гранул; прежний, гравюрой с контуром: ?lines
-  const TINT = new URLSearchParams(location.search).has('cyan');   // портрет чёрно-белый с голубым контуром и линиями на футболке; целиком голубой для сравнения: ?cyan
-  const FACE = !new URLSearchParams(location.search).has('noface');   // портрет автора цитаты в «Кейсах»; без него: ?noface
   const C = 2;                                         // номер главы с пультом: 0 начало, 1 вечер, 2 пульт, 3 система
   let poses = [], foldK = 0, folded = false;
-  let eve = +(new URLSearchParams(location.search).get('eve') || 5);   // вид карты в главе «Вечер»: 0 обычный, 1 низкая камера, 2 прожектор, 3 оба, 4 оба и сжимается зона, 5 линии улиц складываются в рисунок, 6 камера наезжает на кухню, отлетает на весь город, наезжает на гостя
-  const dimC = document.createElement('canvas'), dctx = dimC.getContext('2d');
-  const focus = { x: 0, y: 0, z: 1, tx: 0, ty: 0, tz: 1, set: false };
+  const dimC = document.createElement('canvas'), dctx = dimC.getContext('2d');   // служебный холст для мягкой маски портрета
   // вариант 5: улицы распадаются на живые линии, которые текут по полю сцены и собирают её из движения (поле снимается с картинки: research/scenes/field.py)
   const FLOW_N = 2000, TRAIL = 9, scene = { ready: false, parts: [] }, fields = [null, null, null, null]; let morphK = 0, F = null, Fold = null, swapK = 1;
   // свободные линии за рамкой картинки выключены (amb: false): с ними фон сцены сливался
   const spawnAt = (q, f) => q.amb ? [-0.35 + Math.random() * 1.7, -0.3 + Math.random() * 1.6] : (q.inZone && f.zone ? f.zone.pick() : f.more());
   // картинки лежат в поле 1000×1000 в одном масштабе: исходный квадрат занимает 840 px, расширенные версии уходят в поля (research/scenes/place.py); прямоугольники ниже уже в координатах этого поля
   // у каждого момента своё поле; hot — прямоугольники главного объекта, он светится голубым; bright — второй герой, он просто ярче
-  [['data/field-1900.json', [[0.097, 0.622, 0.403, 0.639]], [[0.634, 1, 0.198, 0.478], [0.755, 1, 0.478, 0.59], [0.634, 1, 0.59, 1]]], ['data/field-1920.json', [[0, 0.74, 0.122, 0.66]]], ['data/field-2010.json', [[0.433, 0.71, 0.08, 0.399], [0.307, 0.811, 0.382, 0.735], [0.307, 0.752, 0.735, 0.92]]],
-   ['data/field-case.json', TINT ? [[0.1, 0.9, 0.08, 0.95]] : [[0.3, 0.8, 0.5, 0.74]], TINT ? [[0.1, 0.9, 0.08, 0.95]] : [], TINT ? 'assets/case-portrait-cyan.jpg' : 'assets/case-portrait.jpg', [[0.4, 0.66, 0.09, 0.47]], TINT ? null : 'assets/case-outline.jpg', GRAIN ? 'assets/case-dots.jpg' : null]].forEach(([url, hot, bright, pic, quiet, rim, grain], idx) => fetch(url + VQ).then((r) => r.json()).then((j) => {
+  // сцены «Часа пик» и портрет нужны не на первом экране: грузим их, когда первый кадр уже нарисован
+  const loadScenes = () => [['data/field-1900.json', [[0.097, 0.622, 0.403, 0.639]], [[0.634, 1, 0.198, 0.478], [0.755, 1, 0.478, 0.59], [0.634, 1, 0.59, 1]]], ['data/field-1920.json', [[0, 0.74, 0.122, 0.66]]], ['data/field-2010.json', [[0.433, 0.71, 0.08, 0.399], [0.307, 0.811, 0.382, 0.735], [0.307, 0.752, 0.735, 0.92]]],
+   ['data/field-case.json', [[0.3, 0.8, 0.5, 0.74]], [], 'assets/case-portrait.jpg', [[0.4, 0.66, 0.09, 0.47]], 'assets/case-outline.jpg', 'assets/case-dots.jpg']].forEach(([url, hot, bright, pic, quiet, rim, grain], idx) => fetch(url + VQ).then((r) => r.json()).then((j) => {
     const f = { g: j.g, mask: Uint8Array.from(j.mask), ang: Uint8Array.from(j.angle), hot, bright: bright || [], quiet: quiet || [] }, cdf = new Float32Array(j.mask.length); let acc = 0;
     for (let i = 0; i < cdf.length; i++) { acc += Math.pow(j.mask[i] / 255, 1.6); cdf[i] = acc; }
     f.pick = () => { const r = Math.random() * acc; let lo = 0, hi = cdf.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (cdf[m] < r) lo = m + 1; else hi = m; } return [((lo % j.g) + Math.random()) / j.g, (Math.floor(lo / j.g) + Math.random()) / j.g]; };
@@ -150,10 +145,11 @@
       scene.ready = true;
     }
   }).catch(() => {}));
+  (window.requestIdleCallback || setTimeout)(loadScenes, { timeout: 600 });
   function setPoses() {
     poses = wide
-      ? [{ zoom: 1.12, ox: w * 0.68, oy: h * 0.5, rot: -0.2, tilt: 0.86 }, (eve === 1 || eve >= 3) ? { zoom: 2.7, ox: w * 0.72, oy: h * 0.64, rot: -0.85, tilt: 0.3 } : { zoom: 1.3, ox: w * 0.66, oy: h * 0.5, rot: -0.11, tilt: 0.83 }, { zoom: 1.5, ox: w * 0.66, oy: h * 0.44, rot: -0.02, tilt: 0.8 }, { zoom: 0.84, ox: w * 0.42, oy: h * 0.56, rot: 0.2, tilt: 0.6 }, { zoom: 0.7, ox: w * 0.72, oy: h * 0.5, rot: 0.38, tilt: 0.7 }, { zoom: 0.82, ox: w * 0.77, oy: h * 0.52, rot: 0.55, tilt: 0.72 }, { zoom: 0.9, ox: w * 0.5, oy: h * 0.5, rot: 0.72, tilt: 0.75 }]
-      : [{ zoom: 0.9, ox: w * 0.5, oy: h * 0.72, rot: -0.2, tilt: 0.86 }, (eve === 1 || eve >= 3) ? { zoom: 2.0, ox: w * 0.5, oy: h * 0.8, rot: -0.85, tilt: 0.32 } : { zoom: 0.98, ox: w * 0.5, oy: h * 0.76, rot: -0.12, tilt: 0.83 }, { zoom: 1.05, ox: w * 0.5, oy: h * 0.74, rot: -0.05, tilt: 0.8 }, { zoom: 0.62, ox: w * 0.42, oy: h * 0.55, rot: 0.2, tilt: 0.6 }, { zoom: 0.55, ox: w * 0.5, oy: h * 0.6, rot: 0.38, tilt: 0.7 }, { zoom: 0.5, ox: w * 0.5, oy: h * 0.76, rot: 0.55, tilt: 0.72 }, { zoom: 0.7, ox: w * 0.5, oy: h * 0.5, rot: 0.72, tilt: 0.75 }];
+      ? [{ zoom: 1.12, ox: w * 0.68, oy: h * 0.5, rot: -0.2, tilt: 0.86 }, { zoom: 2.7, ox: w * 0.72, oy: h * 0.64, rot: -0.85, tilt: 0.3 }, { zoom: 1.5, ox: w * 0.66, oy: h * 0.44, rot: -0.02, tilt: 0.8 }, { zoom: 0.84, ox: w * 0.42, oy: h * 0.56, rot: 0.2, tilt: 0.6 }, { zoom: 0.7, ox: w * 0.72, oy: h * 0.5, rot: 0.38, tilt: 0.7 }, { zoom: 0.82, ox: w * 0.77, oy: h * 0.52, rot: 0.55, tilt: 0.72 }, { zoom: 0.9, ox: w * 0.5, oy: h * 0.5, rot: 0.72, tilt: 0.75 }]
+      : [{ zoom: 0.9, ox: w * 0.5, oy: h * 0.72, rot: -0.2, tilt: 0.86 }, { zoom: 2.0, ox: w * 0.5, oy: h * 0.8, rot: -0.85, tilt: 0.32 }, { zoom: 1.05, ox: w * 0.5, oy: h * 0.74, rot: -0.05, tilt: 0.8 }, { zoom: 0.62, ox: w * 0.42, oy: h * 0.55, rot: 0.2, tilt: 0.6 }, { zoom: 0.55, ox: w * 0.5, oy: h * 0.6, rot: 0.38, tilt: 0.7 }, { zoom: 0.5, ox: w * 0.5, oy: h * 0.76, rot: 0.55, tilt: 0.72 }, { zoom: 0.7, ox: w * 0.5, oy: h * 0.5, rot: 0.72, tilt: 0.75 }];
   }
   let px = 0, py = 0, mx = -9999, my = -9999, tmx = 0, tmy = 0, hasMouse = false;
   const toScreen = (x, y) => { const dx = (x - KX) * cam.zoom, dy = (y - KY) * cam.zoom, c = Math.cos(cam.rot), s = Math.sin(cam.rot); return [cam.ox + px + dx * c - dy * s, cam.oy + py + (dx * s + dy * c) * cam.tilt]; };
@@ -185,7 +181,7 @@
   // ---------- главы и прокрутка ----------
   const chapters = Array.from(document.querySelectorAll('.chapter')), sticks = chapters.map((c) => c.querySelector('.stick'));
   const navLinks = Array.from(document.querySelectorAll('.chapters a')), menuLinks = Array.from(document.querySelectorAll('.menu__list a')), progressBar = document.getElementById('progressBar');
-  const veilSide = document.getElementById('veilSide'), veilFrame = document.getElementById('veilFrame'), veilBlur = document.getElementById('veilBlur'), veilDim = document.getElementById('veilDim'), veilBlurR = document.getElementById('veilBlurR');
+  const veilSide = document.getElementById('veilSide'), veilFrame = document.getElementById('veilFrame'), veilBlur = document.getElementById('veilBlur'), veilDim = document.getElementById('veilDim');
   let vel = 0;
   let scrollTarget = 0, scrollPos = 0;                 // положение в главах: 0…3, дробная часть — перелёт
   let readScroll = function () {
@@ -205,13 +201,6 @@
       for (const key of ['zoom', 'ox', 'oy', 'rot', 'tilt']) cam[key] = mix(poses[glideFrom][key], poses[glideIdx][key], k);
       cam.zoom *= 1 - Math.sin(Math.PI * k) * 0.14;      // один плавный отъезд камеры на весь перелёт
     } else { for (const k of ['zoom', 'ox', 'oy', 'rot', 'tilt']) cam[k] = mix(poses[i0][k], poses[i1][k], t); cam.zoom *= 1 - Math.sin(Math.PI * t) * 0.1; }
-    if (eve === 6) {                                     // фокус: камера сама переезжает от момента к моменту
-      if (!focus.set) { focus.x = focus.tx = KX; focus.y = focus.ty = KY; focus.set = true; }
-      focus.x += (focus.tx - focus.x) * 0.045; focus.y += (focus.ty - focus.y) * 0.045; focus.z += (focus.tz - focus.z) * 0.045;
-      const pk = smooth(1 - Math.abs(p - 1) * 2.2); cam.zoom *= mix(1, focus.z, pk);
-      const dx = (focus.x - KX) * cam.zoom, dy = (focus.y - KY) * cam.zoom, cs = Math.cos(cam.rot), sn = Math.sin(cam.rot);
-      cam.ox -= pk * (dx * cs - dy * sn); cam.oy -= pk * (dx * sn + dy * cs) * cam.tilt;
-    }
     if (!wide) cam.oy -= foldK * h * 0.2 * (inGlide() ? near(C, p) : Math.max(0, 1 - Math.abs(scrollPos - C)));   // пульт свёрнут — кухня поднимается в центр
     if (!reduced) { cam.rot += Math.sin(clock * 0.21) * 0.012; cam.zoom *= 1 + Math.sin(clock * 0.17) * 0.008; }
     sticks.forEach((el, i) => {
@@ -228,9 +217,9 @@
     navLinks.forEach((a, i) => a.setAttribute('aria-current', String(i === active))); menuLinks.forEach((a, i) => a.setAttribute('aria-current', String(i === active)));
     progressBar.style.transform = `scaleX(${(p / (chapters.length - 1)).toFixed(4)})`;
     const tail = inGlide() ? near(4, p) + near(5, p) + near(6, p) : smooth(clamp(p - (C + 1), 0, 1)), sys = inGlide() ? near(C + 1, p) : clamp(p - C, 0, 1) * (1 - tail);   // после «Системы» её демо уходит, карта живёт под затемнением
-    veilDim.style.opacity = (tail * 0.74 * (1 - (FACE ? near(4, p) : 0)) * (1 - 0.5 * near(5, p))).toFixed(3);   // на «Кейсах» затемнение снимаем: там портрет на чёрном
+    veilDim.style.opacity = (tail * 0.74 * (1 - near(4, p)) * (1 - 0.5 * near(5, p))).toFixed(3);   // на «Кейсах» затемнение снимаем: там портрет на чёрном
     const con = near(C, clamp(scrollPos, 0, poses.length - 1));   // насколько мы у пульта, тем же законом, что и сама глава: вуаль уходит, размытая колонка проявляется вместе с рычагами
-    veilSide.style.opacity = ((1 - sys) * (1 - 0.8 * con)).toFixed(3); veilFrame.style.opacity = sys.toFixed(3); veilBlur.style.opacity = con.toFixed(3); veilBlurR.style.opacity = near(6, p).toFixed(3);
+    veilSide.style.opacity = ((1 - sys) * (1 - 0.8 * con)).toFixed(3); veilFrame.style.opacity = sys.toFixed(3); veilBlur.style.opacity = con.toFixed(3);
   }
 
   // ---------- состояние смены ----------
@@ -264,7 +253,7 @@
     for (let k = 0; k < 20; k++) { const n = pool[(Math.random() * pool.length) | 0]; if (orders.some((o) => o.n === n)) continue; orders.push({ n, x: nx(n), y: ny(n), age, taken: false, born: age > 0 ? -1 : clock, wait0: age > 0 ? 6 + Math.random() * R.time * 0.85 : 3 }); return; }
   }
   function apply() {
-    R = M.compute(state); try { renderOffer(); } catch (e) {}   // заголовок заявки следит за пультом; до загрузки формы вызов просто не срабатывает
+    R = M.compute(state);   // заголовок заявки следит за пультом; до загрузки формы вызов просто не срабатывает
     zoneTarget = zoneOf(R.onTime); backlog = Math.max(3, Math.round((R.time - 30) * 0.62));
     agents.forEach((a) => { if (a.i < R.couriers) { if (!a.on) { a.on = true; a.x = KX; a.y = KY; a.path = null; a.state = 'idle'; a.trail = []; a.wait = Math.random(); } a.leaving = false; } else if (a.on) a.leaving = true; });
     rollStats(false);
@@ -330,7 +319,7 @@
     spawnT -= dt; if (orders.length < backlog && spawnT <= 0) { spawn(0); spawnT = 0.35 + Math.random() * 0.5; }
     agents.forEach((a) => step(a, dt));
     for (const f of flashes) f.t += dt; while (flashes.length && flashes[0].t > 0.7) flashes.shift();
-    const zt = zoneTarget * (eve === 4 && pain > 0.5 ? [1, 0.7, 0.42][Math.min(2, Math.floor(painT / MOMENT))] : 1);   // в «перемотке» зона сжимается от момента к моменту
+    const zt = zoneTarget;
     if (Math.abs(zone - zt) > 1) { zone += (zt - zone) * Math.min(1, dt * 1.6); radiiTarget.set(zoneShape(zone)); }
     for (let b = 0; b < BINS; b++) radii[b] += (radiiTarget[b] - radii[b]) * Math.min(1, dt * 4);
     weatherLevel += ((state.weather === 'clear' ? 0 : 1) - weatherLevel) * Math.min(1, dt * 2.5);
@@ -344,9 +333,6 @@
     const pst = pain > 0.5 ? (reduced ? 2 : Math.floor(painT / MOMENT)) : -1, pph = (painT % MOMENT) / MOMENT;
     if (pst !== painStage) {
       painStage = pst; momentEls.forEach((el, i) => el.classList.toggle('is-on', i === pst));
-      if (pst === 1) { focus.tx = KX; focus.ty = KY; focus.tz = 0.42; }                 // коллапс: отлёт на весь город
-      else if (pst === 2) { let best = null; for (const o of orders) if (!o.taken && (!best || o.wait0 + o.age * 1.3 > best.wait0 + best.age * 1.3)) best = o; focus.tx = best ? best.x : KX; focus.ty = best ? best.y : KY; focus.tz = 2.3; }   // гость, который ждёт дольше всех
-      else { focus.tx = KX; focus.ty = KY; focus.tz = pst === 0 ? 2.1 : 1; }             // кухня
     }
     if (moveK > 0.5) moveT = (moveT + dt) % MOVE_LOOP; else moveT = 0;                 // внедрение: 21 день проходит за шесть с половиной секунд, потом пауза
     const dayF = Math.min(21, moveT / DAYS * 21), day = moveK > 0.5 ? Math.min(21, 1 + Math.floor(dayF)) : 0;
@@ -407,20 +393,8 @@
     }
     ctx.restore();
 
-    if (eve >= 2 && eve !== 5 && pain > 0.02) {                       // прожектор: карта гаснет, светится только то, о чём момент
-      if (dimC.width !== canvas.width || dimC.height !== canvas.height) { dimC.width = canvas.width; dimC.height = canvas.height; }
-      ctx.setTransform(ratio, 0, 0, ratio, 0, 0); ctx.globalAlpha = 0.85 * pain; drawLayer(ctx, glowLayer); ctx.globalAlpha = 1;   // улицы разгораются, а темнота вокруг оставляет их только в пятнах света
-      dctx.setTransform(ratio, 0, 0, ratio, 0, 0); dctx.globalCompositeOperation = 'source-over'; dctx.clearRect(0, 0, w, h); dctx.fillStyle = `rgba(0,0,0,${(0.94 * pain).toFixed(3)})`; dctx.fillRect(0, 0, w, h);
-      dctx.globalCompositeOperation = 'destination-out';
-      const k = Math.min(1, pph * 5), hole = (x, y, r) => { const g = dctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(0,0,0,${k})`); g.addColorStop(0.45, `rgba(0,0,0,${k * 0.8})`); g.addColorStop(1, 'rgba(0,0,0,0)'); dctx.fillStyle = g; dctx.beginPath(); dctx.arc(x, y, r, 0, 7); dctx.fill(); };
-      if (pst <= 0) hole(kxs, kys, 260);
-      if (pst === 1) for (const a of agents) if (a.on && a.path) { const [x, y] = toScreen(a.x, a.y); hole(x, y, 150); }
-      if (pst === 2) for (const o of orders) if (!o.taken && Math.min(R.time + 12, Math.round(o.wait0 + o.age * 1.3)) >= LATE_MIN) { const [x, y] = toScreen(o.x, o.y); hole(x, y, 140); }
-      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.drawImage(dimC, 0, 0); ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    }
-
     const caseK = near(4, scrollPos);                              // глава «Кейсы»: линии собирают портрет
-    const passing = gliding && glideIdx >= 0, want = eve === 5 && scene.ready ? (pain > 0.5 && !(passing && glideIdx !== 1) ? fields[Math.max(0, pst)] : FACE && caseK > 0.5 && !(passing && glideIdx !== 4) ? fields[3] : null) || null : null;
+    const passing = gliding && glideIdx >= 0, want = scene.ready ? (pain > 0.5 && !(passing && glideIdx !== 1) ? fields[Math.max(0, pst)] : caseK > 0.5 && !(passing && glideIdx !== 4) ? fields[3] : null) || null : null;
     if (want && want !== F) {                            // новый момент: линии не гаснут, а перетекают со старых мест на новые и дорисовывают сцену
       const live = morphK > 0.5; Fold = F; F = want; swapK = live ? 0 : 1;
       for (const q of scene.parts) {
@@ -671,7 +645,7 @@
     el.addEventListener('input', () => { if (el.getAttribute('aria-invalid') === 'true') check(el); }); });
   lead.addEventListener('submit', (e) => {
     e.preventDefault(); leadMsg.hidden = true;
-    const bad = Object.keys(RULES).map((n) => lead[n]).filter((el) => el.offsetParent !== null && !check(el));   // проверяем только поля, которые есть в выбранном варианте
+    const bad = Object.keys(RULES).map((n) => lead[n]).filter((el) => !check(el));
     if (bad.length) { bad[0].focus(); return; }
     leadBtn.disabled = true; leadBtn.classList.add('is-loading'); lead.setAttribute('aria-busy', 'true');   // загрузка: на кнопке крутится лоадер
     setTimeout(() => {                                     // имитация отправки
@@ -679,28 +653,11 @@
       if (new URLSearchParams(location.search).has('fail')) { leadMsg.textContent = 'При отправке сообщения произошла ошибка. Пожалуйста, попробуйте еще раз позже'; leadMsg.hidden = false; leadBtn.focus(); return; }
       const done = document.getElementById('leadDone'); document.getElementById('leadFields').style.display = 'none'; done.hidden = false; done.focus({ preventScroll: true });
       setTimeout(() => {                                   // как у них: через пять секунд форма возвращается пустой
-        lead.reset(); window.__offer(); lead.querySelectorAll('[aria-invalid]').forEach((el) => el.removeAttribute('aria-invalid')); lead.querySelectorAll('.err').forEach((el) => { el.hidden = true; });
+        lead.reset(); lead.querySelectorAll('[aria-invalid]').forEach((el) => el.removeAttribute('aria-invalid')); lead.querySelectorAll('.err').forEach((el) => { el.hidden = true; });
         done.hidden = true; document.getElementById('leadFields').style.display = 'contents';
       }, 5000);
     }, 1100);
   });
-  // варианты оффера: заголовок может продолжать пульт, а число точек — выбираться кнопкой
-  const leadH = document.getElementById('leadH'), leadSub = document.getElementById('leadSub');
-  function renderOffer() {
-    const v = document.body.dataset.offer || 'a', changed = R.couriers !== R0.couriers || state.rate !== M.START.rate || state.bonus !== M.START.bonus || state.weatherPay !== M.START.weatherPay;
-    const fromConsole = changed ? `На${NB}вашем пульте вышли ${R.couriers} из${NB}${R.total} курьеров` : `Сейчас на${NB}смене ${R.couriers} из${NB}${R.total} курьеров`;
-    const T = {
-      a: [`Разберем ваш кейс за${NB}15${NB}минут`, `Покажем на${NB}ваших цифрах, что изменится в${NB}час пик`],
-      b: [fromConsole, changed ? `Посчитаем то${NB}же на${NB}ваших точках и${NB}ставках` : `Посчитаем, сколько выйдет у${NB}вас, если поднять оплату`],
-      c: [`Покажем пульт на${NB}вашей сети`, `Оставьте номер${NB}— перезвоним и${NB}за${NB}15${NB}минут пройдем по${NB}вашим точкам`],
-      d: [`Сколько у${NB}вас точек?`, `Один ответ${NB}— и${NB}посчитаем оплату курьеров для сети вашего размера`],
-      e: [fromConsole, changed ? `Посчитаем то${NB}же на${NB}ваших точках и${NB}ставках` : `Посчитаем, сколько выйдет у${NB}вас, если поднять оплату`],
-    }[v] || [];
-    leadH.textContent = T[0]; leadSub.textContent = T[1];
-  }
-  window.__offer = () => { lead.classList.remove('picked'); lead.querySelectorAll('.chips button').forEach((b) => b.setAttribute('aria-pressed', 'false')); renderOffer(); };
-  lead.querySelectorAll('.chips button').forEach((b) => b.addEventListener('click', () => { lead.querySelectorAll('.chips button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); lead.points.value = b.dataset.v; lead.classList.add('picked'); lead.name.focus({ preventScroll: true }); }));
-  renderOffer();
   const form = document.getElementById('f'), foldBtn = document.getElementById('fold');
   foldBtn.addEventListener('click', () => { const f = folded = form.classList.toggle('is-folded'); foldBtn.setAttribute('aria-expanded', String(!f)); foldBtn.setAttribute('aria-label', f ? 'Развернуть пульт' : 'Свернуть пульт'); });
   form.addEventListener('input', () => { state.weather = new FormData(form).get('weather'); state.rate = +form.rate.value; state.bonus = form.bonus.checked; state.weatherPay = form.weatherPay.checked; apply(); });
@@ -750,6 +707,5 @@
   readScroll(); scrollPos = scrollTarget; applyChapters();
   { const pin = new URLSearchParams(location.search).get('pin'), idx = chapters.findIndex((c) => c.id === pin); if (idx >= 0) { document.body.classList.add('pin'); intro = 1; scrollTarget = scrollPos = idx; readScroll = () => {}; applyChapters(); } }   // ?pin=console показывает одну главу без прокрутки — для снимков
   if (SHOT !== null) { document.body.classList.add('shot'); intro = 1; scrollTarget = scrollPos = +SHOT; readScroll = () => {}; demoT = 4.4; for (let i = 0; i < 900; i++) { agents.forEach((a) => step(a, 0.033)); } flashes.length = 0; }
-  window.__flow = { get cam() { return { ...cam }; }, get eve() { return eve; }, set eve(v) { eve = +v; setPoses(); }, get pos() { return +scrollPos.toFixed(2); }, get stage() { return demoStage; }, get active() { return agents.filter((a) => a.on).length; }, demoLen: Math.round(demoLen), pool: pool.length };
   requestAnimationFrame(frame);
 })();
