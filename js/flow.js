@@ -310,12 +310,12 @@
 
   let last = performance.now(), spawnT = 0;
   function frame(now) {
-    const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt; foldK += ((folded ? 1 : 0) - foldK) * Math.min(1, dt * 5);
+    const dt = Math.min(0.1, (now - last) / 1000);   // на слабом телефоне время не замедляется, просто кадры реже last = now; clock += dt; foldK += ((folded ? 1 : 0) - foldK) * Math.min(1, dt * 5);
     // обновление
     if (reduced || (gliding && glideIdx >= 0)) { scrollPos = scrollTarget; vel = 0; } else {   // в перелёте камера идёт ровно за ним, без пружины: иначе в конце остаётся хвост и рывок
       vel += ((scrollTarget - scrollPos) * 38 - vel * 11.5) * dt; scrollPos += vel * dt; }   // пружина без перелёта
     applyChapters();
-    const sys = inGlide() ? near(C + 1, scrollPos) : smooth(clamp(scrollPos - C, 0, 1)) * (1 - smooth(clamp(scrollPos - (C + 1), 0, 1))), pain = near(1, scrollPos), moveK = near(5, scrollPos), shift = (1 - sys * 0.82) * (1 - smooth(morphK * 1.4)) * (1 - moveK * 0.9);
+    const sys = inGlide() ? near(C + 1, scrollPos) : smooth(clamp(scrollPos - C, 0, 1)) * (1 - smooth(clamp(scrollPos - (C + 1), 0, 1))), pain = near(1, scrollPos), moveK = near(5, scrollPos), shift = (1 - sys * 0.82) * (1 - smooth(morphK * 3)) * (1 - moveK * 0.9);   // значки карты гаснут в начале сборки сцены, а не к её середине
     const read = SHOT !== null ? (+SHOT >= 1 ? 1 : 0) : inGlide() ? 1 - near(0, scrollPos) : smooth(clamp(scrollPos, 0, 1));   // 0 — огоньки, 1 — метки для чтения      // в третьей главе смена уходит на второй план
     for (const o of orders) o.age += dt;
     spawnT -= dt; if (orders.length < backlog && spawnT <= 0) { spawn(0); spawnT = 0.35 + Math.random() * 0.5; }
@@ -546,7 +546,7 @@
 
     if (pst === 0) for (const k of [0, 0.5]) { const q = (pph + k) % 1; ctx.strokeStyle = WHITE; ctx.lineWidth = 1.5; ctx.globalAlpha = (1 - q) * pain * (1 - morphK); ctx.beginPath(); ctx.arc(kxs, kys, 14 + q * 70, 0, 7); ctx.stroke(); }
     const pulse = (clock % 3) / 3;
-    const km = 1 - smooth(morphK * 1.5);                    // пока идёт сцена, значок кухни прячется
+    const km = 1 - smooth(morphK * 3);                    // пока идёт сцена, значок кухни прячется
     ctx.strokeStyle = WHITE; ctx.lineWidth = 1; ctx.globalAlpha = (1 - pulse) * 0.4 * km; ctx.beginPath(); ctx.arc(kxs, kys, 12 + pulse * 34, 0, 7); ctx.stroke();
     ctx.globalAlpha = km; ctx.fillStyle = BLACK; ctx.lineWidth = 1.5; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(kxs - 9, kys - 9, 18, 18, 4.4); else ctx.rect(kxs - 9, kys - 9, 18, 18); ctx.fill(); ctx.stroke();
     ctx.fillStyle = WHITE; ctx.beginPath(); ctx.arc(kxs, kys, 2.5, 0, 7); ctx.fill();
@@ -713,5 +713,11 @@
   readScroll(); scrollPos = scrollTarget; applyChapters();
   { const pin = new URLSearchParams(location.search).get('pin'), idx = chapters.findIndex((c) => c.id === pin); if (idx >= 0) { document.body.classList.add('pin'); intro = 1; scrollTarget = scrollPos = idx; readScroll = () => {}; applyChapters(); } }   // ?pin=console показывает одну главу без прокрутки — для снимков
   if (SHOT !== null) { document.body.classList.add('shot'); intro = 1; scrollTarget = scrollPos = +SHOT; readScroll = () => {}; demoT = 4.4; for (let i = 0; i < 900; i++) { agents.forEach((a) => step(a, 0.033)); } flashes.length = 0; }
+  if (new URLSearchParams(location.search).has('debug')) {   // ?debug — частота кадров и состояние сцены, для проверки на телефоне
+    const box = document.createElement('div'); box.style.cssText = 'position:fixed;z-index:20;left:8px;bottom:8px;padding:6px 8px;border-radius:8px;background:#000c;color:#0ff;font:12px/16px monospace;white-space:pre;pointer-events:none';
+    document.body.appendChild(box); let n = 0, t0 = performance.now();
+    const tick = (now) => { n++; if (now - t0 > 500) { box.textContent = `${Math.round(n * 1000 / (now - t0))} fps  dpr ${devicePixelRatio}\nглава ${scrollPos.toFixed(2)}  сцена ${morphK.toFixed(2)}`; n = 0; t0 = now; } requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  }
   requestAnimationFrame(frame);
 })();
