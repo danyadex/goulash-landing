@@ -501,6 +501,7 @@
     }
 
     // точки и подписи без искажения камеры
+    if (shift > 0.003) {                                // значки карты: когда собрана сцена, их нет совсем
     const tags = [];
     for (const o of orders) {
       const [x, y] = toScreen(o.x, o.y), wait = Math.min(R.time + 12, Math.round(o.wait0 + o.age * 1.3));
@@ -543,14 +544,17 @@
       ctx.save(); ctx.translate(x, y); ctx.rotate(ang); ctx.scale(r / 8, r / 8); ctx.fillStyle = go ? BLACK : CYAN;
       ctx.beginPath(); ctx.moveTo(4.2, 0); ctx.lineTo(-2.6, -3.4); ctx.lineTo(-1, 0); ctx.lineTo(-2.6, 3.4); ctx.closePath(); ctx.fill(); ctx.restore();
     }
+    }
 
     if (pst === 0) for (const k of [0, 0.5]) { const q = (pph + k) % 1; ctx.strokeStyle = WHITE; ctx.lineWidth = 1.5; ctx.globalAlpha = (1 - q) * pain * (1 - morphK); ctx.beginPath(); ctx.arc(kxs, kys, 14 + q * 70, 0, 7); ctx.stroke(); }
     const pulse = (clock % 3) / 3;
     const km = 1 - smooth(morphK * 3);                    // пока идёт сцена, значок кухни прячется
+    if (km > 0.003) {                                   // Safari на iOS рисует и с нулевой прозрачностью — скрытое просто не рисуем
     ctx.strokeStyle = WHITE; ctx.lineWidth = 1; ctx.globalAlpha = (1 - pulse) * 0.4 * km; ctx.beginPath(); ctx.arc(kxs, kys, 12 + pulse * 34, 0, 7); ctx.stroke();
     ctx.globalAlpha = km; ctx.fillStyle = BLACK; ctx.lineWidth = 1.5; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(kxs - 9, kys - 9, 18, 18, 4.4); else ctx.rect(kxs - 9, kys - 9, 18, 18); ctx.fill(); ctx.stroke();
     ctx.fillStyle = WHITE; ctx.beginPath(); ctx.arc(kxs, kys, 2.5, 0, 7); ctx.fill();
     label('Кухня', kxs + 18, kys, 0.5 * (1 - sys) * km * (1 - moveK));
+    }
     if (moveK > 0.02) {                                  // сеть переходит на систему: от головной кухни к точкам тянутся линии, точка загорается
       net.forEach((o, i) => {
         const [x, y] = toScreen(o.x, o.y), k = clamp((dayF - (1.5 + i * 18.5 / (net.length - 1))) / 1.4, 0, 1), on = k >= 1;
