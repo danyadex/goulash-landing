@@ -181,6 +181,7 @@
   // ---------- главы и прокрутка ----------
   const chapters = Array.from(document.querySelectorAll('.chapter')), sticks = chapters.map((c) => c.querySelector('.stick'));
   const navLinks = Array.from(document.querySelectorAll('.chapters a')), menuLinks = Array.from(document.querySelectorAll('.menu__list a')), progressBar = document.getElementById('progressBar');
+  const topCta = document.getElementById('topCta');
   const veilSide = document.getElementById('veilSide'), veilFrame = document.getElementById('veilFrame'), veilBlur = document.getElementById('veilBlur'), veilDim = document.getElementById('veilDim');
   let vel = 0;
   let scrollTarget = 0, scrollPos = 0;                 // положение в главах: 0…3, дробная часть — перелёт
@@ -214,7 +215,7 @@
       if (i === C && inNow !== was) { if (inNow) setTimeout(() => rollStats(false), 120); else rollStats(true); }
     });
     const active = Math.round(p);
-    navLinks.forEach((a, i) => a.setAttribute('aria-current', String(i === active))); menuLinks.forEach((a, i) => a.setAttribute('aria-current', String(i === active)));
+    navLinks.forEach((a, i) => a.setAttribute('aria-current', String(i === active))); menuLinks.forEach((a, i) => a.setAttribute('aria-current', String(i === active))); topCta.setAttribute('aria-disabled', String(active === 6)); topCta.tabIndex = active === 6 ? -1 : 0;
     progressBar.style.transform = `scaleX(${(p / (chapters.length - 1)).toFixed(4)})`;
     const tail = inGlide() ? near(4, p) + near(5, p) + near(6, p) : smooth(clamp(p - (C + 1), 0, 1)), sys = inGlide() ? near(C + 1, p) : clamp(p - C, 0, 1) * (1 - tail);   // после «Системы» её демо уходит, карта живёт под затемнением
     veilDim.style.opacity = (tail * 0.74 * (1 - near(4, p)) * (1 - 0.5 * near(5, p))).toFixed(3);   // на «Кейсах» затемнение снимаем: там портрет на чёрном

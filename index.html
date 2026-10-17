@@ -8,8 +8,8 @@
 <link rel="icon" href="assets/sign.svg" type="image/svg+xml">
 <link rel="preload" href="assets/fonts/onest-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="assets/fonts/onest-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="data/ekb-map.json?v=1018a" as="fetch" crossorigin>
-<link rel="stylesheet" href="css/tokens.css?v=1018a">
+<link rel="preload" href="data/ekb-map.json?v=1018b" as="fetch" crossorigin>
+<link rel="stylesheet" href="css/tokens.css?v=1018b">
 <style>
   :root { --g: clamp(20px, 5vw, 64px); }
   *, *::before, *::after { box-sizing: border-box; }
@@ -74,6 +74,7 @@
   .chapters a[aria-current="true"]::before { background: var(--white); }
   .btn { display: inline-flex; align-items: center; justify-content: center; padding: 16px 24px; border-radius: 16px; background: var(--white); color: var(--black); text-decoration: none; transition: background-color .15s; }
   .btn:hover { background: var(--cyan-300); }
+  .btn[aria-disabled="true"] { opacity: .4; pointer-events: none; }   /* на экране заявки кнопка в шапке не нужна: форма уже перед глазами */
   .btn--small { padding: 12px 16px; white-space: nowrap; } .btn .short { display: none; }
 
   /* каждая глава длиннее экрана, её содержимое прилипает и проявляется по прокрутке */
@@ -295,25 +296,25 @@
 <header class="top">
   <a href="#top" aria-label="Goulash.tech, в начало"><img class="logo-full" src="assets/logo-inline-on-dark.svg" alt="Goulash.tech" width="188" height="28"><img class="logo-sign" src="assets/sign.svg" alt="Goulash.tech" width="28" height="28"></a>
   <nav class="chapters" aria-label="Разделы">
-    <a href="#top" aria-current="true">Обзор</a>
-    <a href="#evening">Час пик</a>
-    <a href="#console">Мотивация курьеров</a>
+    <a href="#top" aria-current="true">Главная</a>
+    <a href="#evening">Проблема</a>
+    <a href="#console">Пульт</a>
     <a href="#system">Продукт</a>
     <a href="#cases">Кейсы</a>
     <a href="#move">Внедрение</a>
     <a href="#lead">Заявка</a>
   </nav>
   <div class="top__right">
-    <a class="btn btn--small" href="#lead">Подключить</a>
+    <a class="btn btn--small" id="topCta" href="#lead">Подключить</a>
     <button class="menu-btn" type="button" id="menuBtn" aria-expanded="false" aria-controls="menu" aria-label="Разделы"><i aria-hidden="true"></i><i aria-hidden="true"></i></button>
   </div>
   <i class="progress" aria-hidden="true"><b id="progressBar"></b></i>
 </header>
 <nav class="menu" id="menu" aria-label="Разделы" tabindex="-1" hidden>
   <ol class="menu__list">
-    <li><a href="#top"><span>01</span>Обзор</a></li>
-    <li><a href="#evening"><span>02</span>Час пик</a></li>
-    <li><a href="#console"><span>03</span>Мотивация курьеров</a></li>
+    <li><a href="#top"><span>01</span>Главная</a></li>
+    <li><a href="#evening"><span>02</span>Проблема</a></li>
+    <li><a href="#console"><span>03</span>Пульт</a></li>
     <li><a href="#system"><span>04</span>Продукт</a></li>
     <li><a href="#cases"><span>05</span>Кейсы</a></li>
     <li><a href="#move"><span>06</span>Внедрение</a></li>
@@ -441,8 +442,8 @@
 </main>
 
 <!-- версия в адресах: меняется при каждой правке, чтобы браузер не показывал старые файлы из кэша -->
-<script>window.__v = "1018a";</script>
-<script src="js/model.js?v=1018a"></script>
-<script src="js/flow.js?v=1018a"></script>
+<script>window.__v = "1018b";</script>
+<script src="js/model.js?v=1018b"></script>
+<script src="js/flow.js?v=1018b"></script>
 </body>
 </html>
