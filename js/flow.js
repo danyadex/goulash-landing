@@ -102,8 +102,8 @@
   const grainLayer = document.createElement('canvas'), grainCtx = grainLayer.getContext('2d'), grainBuckets = [[], [], [], []];
   const cam = { zoom: 1, ox: 0, oy: 0, rot: 0, tilt: 1 };
   // параметры портрета из зерен
-  const GP = { pic: 0.6, n: 218000, gamma: 3.3, dot: 0.5, jitter: 15, floor: 0.74, shimmer: 0.22, band: 0.25, speed: 0.12, reach: 0.24, push: 3.5, dust: 3200, far: 1.1 };   // значения выставил Даниил 13.10; dust и far — россыпь вокруг портрета
-  if (matchMedia('(max-width: 899px)').matches) Object.assign(GP, { n: 16000, dot: 0.9, dust: 700, pic: 0.8 });   // на телефоне мелкие зёрна сливаются в шум: их меньше, они крупнее
+  const GP = { pic: 0.6, n: 18000, gamma: 1.3, dot: 0.55, jitter: 7, floor: 0.8, shimmer: 0.46, band: 1, speed: 0.49, reach: 0.24, push: 3.5, dust: 1600, far: 2.1 };   // воздушный портрет: значения выставил Даниил 18.10 пультом ?grain
+  if (matchMedia('(max-width: 899px)').matches) Object.assign(GP, { n: 16000, dot: 0.9, dust: 700, pic: 0.8, gamma: 3.3, floor: 0.74, jitter: 15, shimmer: 0.22, band: 0.25, speed: 0.12, far: 1.1 });   // на телефоне мелкие зёрна сливаются в шум: их меньше, они крупнее
   // Телефон: зерно запекается в чёткий слой заранее. В кадре двигаются полосы сборки и свет, а не 16 тысяч точек.
   async function bakePortrait(f) {
     if (f.baking || !f.grain) return;
