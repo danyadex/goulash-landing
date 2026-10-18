@@ -103,7 +103,7 @@
   const cam = { zoom: 1, ox: 0, oy: 0, rot: 0, tilt: 1 };
   // параметры портрета из зерен
   const GP = { pic: 0.6, n: 18000, gamma: 1.3, dot: 0.55, jitter: 7, floor: 0.8, shimmer: 0.46, band: 1, speed: 0.49, reach: 0.24, push: 3.5, dust: 1600, far: 2.1 };   // воздушный портрет: значения выставил Даниил 18.10 пультом ?grain
-  if (matchMedia('(max-width: 899px)').matches) Object.assign(GP, { pic: 0.45, n: 12000, dot: 0.3, gamma: 3.2, floor: 0.2, jitter: 7, shimmer: 0.32, band: 1, speed: 0.5, reach: 0.24, push: 2, dust: 600, far: 1.6 });   // мобильный портрет: значения выставил Даниил 18.10 пультом ?grain
+  if (matchMedia('(max-width: 899px)').matches) Object.assign(GP, { pic: 0.45, n: 10000, dot: 0.3, gamma: 0.9, floor: 0.2, jitter: 7, shimmer: 0.32, band: 1, speed: 0.5, reach: 0.24, push: 2, dust: 600, far: 1.6 });   // мобильный портрет: значения выставил Даниил 18.10 пультом ?grain
   // Телефон: зерно запекается в чёткий слой заранее. В кадре двигаются полосы сборки и свет, а не 18 тысяч точек.
   async function bakePortrait(f) {
     if (f.baking || !f.grain) return;
