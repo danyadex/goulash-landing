@@ -167,11 +167,11 @@
     return fieldLoads[idx] = fetch(url + VQ).then((r) => r.json()).then(async (j) => {
     const f = { g: j.g, mask: Uint8Array.from(j.mask), ang: Uint8Array.from(j.angle), hot, bright: bright || [], quiet: quiet || [] }, cdf = new Float32Array(j.mask.length); let acc = 0;
     const fieldWeights = Float64Array.from({ length: 256 }, (_, v) => Math.pow(v / 255, 1.6));
-    // спина менеджера — одна тонкая линия контура: без отдельного веса (×5) линии на неё почти не попадают
+    // спина менеджера — одна тонкая линия контура: без отдельного веса (×10) линии на неё почти не попадают
     const BOOST = 2.4, boost = idx === 0 && bright && bright.length;   // кухня: на менеджера ложится больше линий — спина и бок прорисованы, а не только контур
     for (let start = 0; start < cdf.length; start += 8192) {
       const end = Math.min(start + 8192, cdf.length);
-      for (let i = start; i < end; i++) { let wv = fieldWeights[j.mask[i]]; if (boost) { const x = (i % j.g) / j.g, y = Math.floor(i / j.g) / j.g; for (const r of bright) if (x > r[0] && x < r[1] && y > r[2] && y < r[3]) { wv *= BOOST; break; } if (x > 0.84 && x < 0.99 && y > 0.18 && y < 0.95) wv *= 5; } acc += wv; cdf[i] = acc; }
+      for (let i = start; i < end; i++) { let wv = fieldWeights[j.mask[i]]; if (boost) { const x = (i % j.g) / j.g, y = Math.floor(i / j.g) / j.g; for (const r of bright) if (x > r[0] && x < r[1] && y > r[2] && y < r[3]) { wv *= BOOST; break; } if (x > 0.84 && x < 0.99 && y > 0.18 && y < 0.95) wv *= 10; } acc += wv; cdf[i] = acc; }
       if (touch && end < cdf.length) await idlePause();
     }
     f.pick = () => { const r = Math.random() * acc; let lo = 0, hi = cdf.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (cdf[m] < r) lo = m + 1; else hi = m; } return [((lo % j.g) + Math.random()) / j.g, (Math.floor(lo / j.g) + Math.random()) / j.g]; };
