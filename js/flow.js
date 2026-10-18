@@ -59,7 +59,7 @@
   const demoPath = pathTo(demoNode), demoLen = dist[demoNode];
   // точки сети для последнего шага «Деньги»: ближайшие перекрёстки вокруг кухни, у каждой свой столбик выручки
   // «Внедрение»: точки сети вокруг головной кухни, переходят на систему одна за другой — ближние раньше
-  const net = Array.from({ length: 14 }, (_, i) => { const a = i * 2.39996 + 0.6, r = 130 + (i / 13) * 300, tx = KX + Math.cos(a) * r, ty = KY + Math.sin(a) * r * 0.9; let best = 0, bd = 1e9; for (let q = 0; q < N; q++) { const d = Math.hypot(nx(q) - tx, ny(q) - ty); if (d < bd) { bd = d; best = q; } } return { x: nx(best), y: ny(best) }; });
+  const net = Array.from({ length: 14 }, (_, i) => { const a = i * 2.39996 + 0.6, r = 190 + (i / 13) * 400, tx = KX + Math.cos(a) * r, ty = KY + Math.sin(a) * r * 0.9; let best = 0, bd = 1e9; for (let q = 0; q < N; q++) { const d = Math.hypot(nx(q) - tx, ny(q) - ty); if (d < bd) { bd = d; best = q; } } return { x: nx(best), y: ny(best) }; });
   const dayBar = document.getElementById('dayBar'), dayN = document.getElementById('dayN'); for (let i = 0; i < 21; i++) dayBar.appendChild(document.createElement('i'));
   const DAYS = 6.5, MOVE_LOOP = 9.5; let moveT = 0, dayShown = -1;
   const outlets = [[-430, -190, 0.62], [360, -250, 0.9], [470, 230, 0.48], [-300, 290, 0.74]].map(([dx, dy, v]) => { let best = 0, bd = 1e9; for (let i = 0; i < N; i++) { const d = Math.hypot(nx(i) - (KX + dx), ny(i) - (KY + dy)); if (d < bd) { bd = d; best = i; } } return { x: nx(best), y: ny(best), v }; });
