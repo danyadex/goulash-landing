@@ -137,7 +137,7 @@
         if (GP.band > 0) {                                // полоса света идёт по портрету, как на десктопе
           const t = (clock * GP.speed) % 1, cx = -0.35 + 1.7 * t, bw = 0.16;
           const sx = Math.max(0, Math.floor((cx - bw) * sprite.width)), ex = Math.min(sprite.width, Math.ceil((cx + bw) * sprite.width));
-          if (ex > sx) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.55 * GP.band; ctx.drawImage(sprite, sx, 0, ex - sx, sprite.height, bx + sx / sprite.width * size, by, (ex - sx) / sprite.width * size, size); ctx.globalCompositeOperation = 'source-over'; }
+          if (ex > sx) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.12 * GP.band; ctx.drawImage(sprite, sx, 0, ex - sx, sprite.height, bx + sx / sprite.width * size, by, (ex - sx) / sprite.width * size, size); ctx.globalCompositeOperation = 'source-over'; }
         }
       }
     }
