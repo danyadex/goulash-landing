@@ -688,6 +688,7 @@
     tags.sort((a, b) => b.wait - a.wait);
     ctx.font = `400 11px ${FONT}`; ctx.textBaseline = 'middle';
     const placed = [];
+    if (moveK > 0.05) tags.length = 0;                   // на «Внедрении» бирки с минутами мешают графике сети
     for (const t of tags) {
       if (placed.length >= 4) break;
       if (placed.some((q) => Math.abs(q.x - t.x) < 90 && Math.abs(q.y - t.y) < 30)) continue;
@@ -966,7 +967,15 @@
     const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Скопировать значения';
     copy.style.cssText = 'margin-top:4px;padding:10px;border:0;border-radius:8px;background:#fff;color:#000;font:inherit;cursor:pointer';
     copy.onclick = () => { const v = JSON.stringify(Object.fromEntries(KNOBS.map(([k]) => [k, GP[k]]))); navigator.clipboard && navigator.clipboard.writeText(v); copy.textContent = 'Скопировано'; setTimeout(() => { copy.textContent = 'Скопировать значения'; }, 1500); };
-    box.appendChild(copy); document.body.appendChild(box);
+    box.appendChild(copy);
+    if (innerWidth < 900) {                                // на телефоне — шторка снизу, сворачивается, чтобы видеть портрет целиком
+      Object.assign(box.style, { left: '8px', right: '8px', top: 'auto', bottom: '8px', width: 'auto', maxHeight: '42vh', paddingTop: '44px' });
+      const fold = document.createElement('button'); fold.type = 'button'; fold.textContent = 'Свернуть';
+      fold.style.cssText = 'position:fixed;z-index:21;right:16px;padding:8px 12px;border:0;border-radius:8px;background:#fff;color:#000;font:13px/18px var(--font-family-base);cursor:pointer';
+      const place = () => { fold.style.bottom = box.style.display === 'none' ? '16px' : `calc(8px + min(42vh, ${box.scrollHeight}px) - 40px)`; };
+      fold.onclick = () => { const hide = box.style.display !== 'none'; box.style.display = hide ? 'none' : 'grid'; fold.textContent = hide ? 'Пульт' : 'Свернуть'; place(); };
+      document.body.appendChild(box); document.body.appendChild(fold); place();
+    } else document.body.appendChild(box);
   }
   scheduleFrame();
 })();
