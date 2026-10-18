@@ -966,8 +966,15 @@
     }
     const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Скопировать значения';
     copy.style.cssText = 'margin-top:4px;padding:10px;border:0;border-radius:8px;background:#fff;color:#000;font:inherit;cursor:pointer';
-    copy.onclick = () => { const v = JSON.stringify(Object.fromEntries(KNOBS.map(([k]) => [k, GP[k]]))); navigator.clipboard && navigator.clipboard.writeText(v); copy.textContent = 'Скопировано'; setTimeout(() => { copy.textContent = 'Скопировать значения'; }, 1500); };
-    box.appendChild(copy);
+    const shown = document.createElement('textarea'); shown.readOnly = true; shown.rows = 4; shown.hidden = true;   // значения видны текстом: на iPhone буфер обмена иногда не срабатывает
+    shown.style.cssText = 'width:100%;padding:8px;border:0;border-radius:8px;background:#111;color:#fff;font:12px/16px monospace;resize:none';
+    copy.onclick = async () => {
+      const v = JSON.stringify(Object.fromEntries(KNOBS.map(([k]) => [k, GP[k]])));
+      shown.value = v; shown.hidden = false; shown.focus(); shown.select();
+      let ok = false; try { await navigator.clipboard.writeText(v); ok = true; } catch (e) { ok = document.execCommand && document.execCommand('copy'); }
+      copy.textContent = ok ? 'Скопировано' : 'Выдели текст ниже и скопируй'; setTimeout(() => { copy.textContent = 'Скопировать значения'; }, 2500);
+    };
+    box.appendChild(copy); box.appendChild(shown);
     if (innerWidth < 900) {                                // на телефоне — шторка снизу, сворачивается, чтобы видеть портрет целиком
       Object.assign(box.style, { left: '8px', right: '8px', top: 'auto', bottom: '8px', width: 'auto', maxHeight: '42vh', paddingTop: '44px' });
       const fold = document.createElement('button'); fold.type = 'button'; fold.textContent = 'Свернуть';
