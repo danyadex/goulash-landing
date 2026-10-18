@@ -574,6 +574,7 @@
       if (!wide) {                                       // на телефоне сцена занимает место под текстом главы, сколько бы его ни было
         const el = F === fields[3] ? casesText : painText, top = el ? sceneBottom(el, pageY) + 24 : h * 0.5, room = Math.max(120, h - top - 10);
         size = Math.min(w * 1.17, room / 0.86); bx = w / 2 - size / 2; by = top + room / 2 - size * 0.51;
+        if (F !== fields[3]) { size = w * 1.17; bx = w / 2 - size / 2; by = top - size * 0.07; }   // сцены «Часа пик» — во всю ширину экрана, низ может уйти за край
       }
       const G = F.g, at = (x, y) => (Math.min(G - 1, Math.max(0, y * G | 0)) * G + Math.min(G - 1, Math.max(0, x * G | 0)));
       if (touch && F.grain && !F.grainSprite && !F.baking) bakePortrait(F);
