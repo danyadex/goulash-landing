@@ -100,7 +100,7 @@
   const cam = { zoom: 1, ox: 0, oy: 0, rot: 0, tilt: 1 };
   // параметры портрета из зерен
   const GP = { pic: 0.6, n: 218000, gamma: 3.3, dot: 0.5, jitter: 15, floor: 0.74, shimmer: 0.22, band: 0.25, speed: 0.12, reach: 0.24, push: 3.5, dust: 3200, far: 1.1 };   // значения выставил Даниил 13.10; dust и far — россыпь вокруг портрета
-  if (matchMedia('(max-width: 899px)').matches) Object.assign(GP, { n: 110000, dot: 1.2, dust: 1200 });   // на телефоне мелкие зёрна сливаются в шум: их меньше, они крупнее
+  if (matchMedia('(max-width: 899px)').matches) Object.assign(GP, { n: 160000, dot: 0.9, dust: 700, pic: 0.95 });   // на телефоне мелкие зёрна сливаются в шум: их меньше, они крупнее
   const C = 2;                                         // номер главы с пультом: 0 начало, 1 вечер, 2 пульт, 3 система
   let poses = [], foldK = 0, folded = false;
   const dimC = document.createElement('canvas'), dctx = dimC.getContext('2d');   // служебный холст для мягкой маски портрета
