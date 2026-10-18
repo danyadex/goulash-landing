@@ -99,11 +99,55 @@
   let w = 0, h = 0, ratio = 1, wide = true, temp = null, tctx = null, spot = null, sctx = null;
   const SPOT = 200;
   // Плотный портрет в Safari: маленькие пути вместо одного пересекающегося контура на 160 тысяч зёрен.
-  const grainLayer = document.createElement('canvas'), grainCtx = grainLayer.getContext('2d');
+  const grainLayer = document.createElement('canvas'), grainCtx = grainLayer.getContext('2d'), grainBuckets = [[], [], [], []];
   const cam = { zoom: 1, ox: 0, oy: 0, rot: 0, tilt: 1 };
   // параметры портрета из зерен
   const GP = { pic: 0.6, n: 218000, gamma: 3.3, dot: 0.5, jitter: 15, floor: 0.74, shimmer: 0.22, band: 0.25, speed: 0.12, reach: 0.24, push: 3.5, dust: 3200, far: 1.1 };   // значения выставил Даниил 13.10; dust и far — россыпь вокруг портрета
-  if (matchMedia('(max-width: 899px)').matches) Object.assign(GP, { n: 16000, dot: 0.9, dust: 700, pic: 0.95 });   // на телефоне мелкие зёрна сливаются в шум: их меньше, они крупнее
+  if (matchMedia('(max-width: 899px)').matches) Object.assign(GP, { n: 16000, dot: 0.9, dust: 700, pic: 0.8 });   // на телефоне мелкие зёрна сливаются в шум: их меньше, они крупнее
+  // Телефон: зерно запекается в чёткий слой заранее. В кадре двигаются полосы сборки и свет, а не 16 тысяч точек.
+  async function bakePortrait(f) {
+    if (f.baking || !f.grain) return;
+    f.baking = true;
+    const P = f.grain, side = Math.ceil(w * 1.17 * ratio), dot = Math.max(0.5 * ratio, side / 700 * GP.dot);
+    const cv = document.createElement('canvas'); cv.width = cv.height = side;
+    const c = cv.getContext('2d'); c.fillStyle = CYAN;
+    for (let start = 0; start < P.length; start += 8192 * 8) {
+      c.beginPath(); const end = Math.min(start + 8192 * 8, P.length);
+      for (let i = start; i < end; i += 8) {
+        const sz = dot * P[i + 6]; c.rect(P[i] * side, P[i + 1] * side, sz, sz);
+      }
+      c.fill(); await idlePause();
+      if (f.grain !== P) { f.baking = false; return; }
+    }
+    f.grainSprite = cv; f.baking = false;
+  }
+  function mobilePortrait(f, bx, by, size) {
+    const sprite = f.grainSprite;
+    if (GP.pic > 0 && f.gimg.complete && f.gimg.naturalWidth) {
+      ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = GP.pic * smooth((morphK - 0.45) / 0.55);
+      ctx.drawImage(f.gimg, bx, by, size, size); ctx.globalCompositeOperation = 'source-over';
+    }
+    if (sprite.width !== Math.ceil(w * 1.17 * ratio)) bakePortrait(f);
+    const light = reduced ? 0.88 : 0.84 + 0.06 * Math.sin(clock * 1.3);
+    if (morphK > 0.998) { ctx.globalAlpha = light; ctx.drawImage(sprite, bx, by, size, size); }
+    else for (let col = 0; col < 24; col++) {
+      const hx = (col + 0.5) / 24, e = inOut(clamp((morphK - hx * 0.45) / 0.55, 0, 1));
+      if (e <= 0) continue;
+      const sx = Math.floor(col * sprite.width / 24), ex = Math.floor((col + 1) * sprite.width / 24);
+      const dx = Math.sin(col * 2.4) * (1 - e) * size * 0.12, dy = Math.cos(col * 1.7) * (1 - e) * size * 0.12;
+      ctx.globalAlpha = light * e;
+      ctx.drawImage(sprite, sx, 0, ex - sx, sprite.height, bx + sx / sprite.width * size + dx, by + dy, (ex - sx) / sprite.width * size, size);
+    }
+    // Редкая россыпь остаётся живой; слабая подложка помогает читать силуэт.
+    const U = f.dust, dk = smooth((morphK - 0.35) / 0.65), dot = Math.max(0.5, size / 700 * GP.dot);
+    if (U) { ctx.fillStyle = CYAN; for (let i = 0; i < U.length; i += 5) {
+      const ph = U[i + 3], a = U[i + 2] * (0.5 + 0.5 * Math.sin(clock * 0.8 + ph * 2)) * dk;
+      if (a <= 0.06) continue;
+      const x = U[i] + Math.sin(clock * 0.11 + ph) * 0.02, y = U[i + 1] + Math.cos(clock * 0.09 + ph * 1.3) * 0.02 - ((clock * 0.004 + ph) % 0.06), d = dot * 1.6 * U[i + 4];
+      ctx.globalAlpha = a; ctx.fillRect(bx + x * size, by + y * size, d, d);
+    } }
+    ctx.globalAlpha = 1;
+  }
   const C = 2;                                         // номер главы с пультом: 0 начало, 1 вечер, 2 пульт, 3 система
   let poses = [], foldK = 0, folded = false;
   const dimC = document.createElement('canvas'), dctx = dimC.getContext('2d');   // служебный холст для мягкой маски портрета
@@ -120,9 +164,14 @@
   function loadField(idx) {
     if (fieldLoads[idx]) return fieldLoads[idx];
     const [url, hot, bright, pic, quiet, rim, grain] = sceneSources[idx];
-    return fieldLoads[idx] = fetch(url + VQ).then((r) => r.json()).then((j) => {
+    return fieldLoads[idx] = fetch(url + VQ).then((r) => r.json()).then(async (j) => {
     const f = { g: j.g, mask: Uint8Array.from(j.mask), ang: Uint8Array.from(j.angle), hot, bright: bright || [], quiet: quiet || [] }, cdf = new Float32Array(j.mask.length); let acc = 0;
-    for (let i = 0; i < cdf.length; i++) { acc += Math.pow(j.mask[i] / 255, 1.6); cdf[i] = acc; }
+    const fieldWeights = Float64Array.from({ length: 256 }, (_, v) => Math.pow(v / 255, 1.6));
+    for (let start = 0; start < cdf.length; start += 8192) {
+      const end = Math.min(start + 8192, cdf.length);
+      for (let i = start; i < end; i++) { acc += fieldWeights[j.mask[i]]; cdf[i] = acc; }
+      if (touch && end < cdf.length) await idlePause();
+    }
     f.pick = () => { const r = Math.random() * acc; let lo = 0, hi = cdf.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (cdf[m] < r) lo = m + 1; else hi = m; } return [((lo % j.g) + Math.random()) / j.g, (Math.floor(lo / j.g) + Math.random()) / j.g]; };
     if (j.zone && !pic) {                                        // маленькая фигура со своим силуэтом: часть линий живёт только внутри него
       const z = j.zone, zc = new Float32Array(z.mask.length); let za = 0; for (let i = 0; i < zc.length; i++) { za += Math.pow(z.mask[i] / 255, 1.4); zc[i] = za; }
@@ -132,7 +181,6 @@
     if (grain) {                                         // гранулярный портрет: десятки тысяч зёрен, расставленных по самой картинке, каждое со своим размером
       const im = f.gimg = new Image(); im.onload = () => {
         const c = document.createElement('canvas'), n = touch ? 800 : 1600; c.width = c.height = n; const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(im, 0, 0, n, n);
-        if (touch) f.img = im;   // тот же чёткий исходник, пока зерно готовится порциями
         const d = x.getImageData(0, 0, n, n).data, cdf = new Float32Array(n * n);
         let grainJob = 0;
         f.regrain = async () => {                              // расставить зёрна заново — после смены их числа или контраста
@@ -150,11 +198,12 @@
             const q = Math.random();
             P[k * 8] = ((lo % n) + Math.random()) / n; P[k * 8 + 1] = (Math.floor(lo / n) + Math.random()) / n; P[k * 8 + 2] = d[lo * 4 + 1] / 255; P[k * 8 + 3] = Math.random() * 6.283; P[k * 8 + 4] = (Math.random() - 0.5) * 2; P[k * 8 + 5] = (Math.random() - 0.5) * 2;
             P[k * 8 + 6] = q < 0.8 ? 0.7 + Math.random() * 0.5 : q < 0.97 ? 1.2 + Math.random() * 0.6 : 1.8 + Math.random() * 1; }   // зерно разного калибра, как на исходнике
-          f.grain = P; f.go = new Float32Array(N * 4);
+          f.grain = P; f.grainSprite = null; f.go = new Float32Array(N * 4);
           const M = Math.round(GP.dust), U = new Float32Array(M * 5);   // россыпь: зёрна уходят за пределы портрета и редеют с расстоянием
           for (let k = 0; k < M; k++) { const fr = Math.pow(Math.random(), 1.9), rr = 0.36 + fr * GP.far, th = Math.random() * 6.283, q = Math.random();
             U[k * 5] = 0.5 + Math.cos(th) * rr * 1.08; U[k * 5 + 1] = 0.5 + Math.sin(th) * rr * 0.92; U[k * 5 + 2] = Math.pow(1 - fr, 1.4); U[k * 5 + 3] = Math.random() * 6.283; U[k * 5 + 4] = q < 0.75 ? 0.8 + Math.random() * 0.7 : q < 0.96 ? 1.5 + Math.random() * 1 : 2.6 + Math.random() * 1.6; }
           f.dust = U;
+          if (touch) await bakePortrait(f);
         };
         (window.requestIdleCallback || ((cb) => setTimeout(cb, 1200)))(() => f.regrain(), { timeout: 5000 });   // зерно готовится в паузу; на телефоне работа разбита на короткие порции
       }; im.src = grain.replace('.jpg', '-cyan.jpg') + VQ;
@@ -198,24 +247,44 @@
   }
   function resize() {
     const nextRatio = Math.min(devicePixelRatio || 1, 1.5), nextW = canvas.clientWidth, nextH = canvas.clientHeight, nextWide = matchMedia('(min-width: 900px)').matches;
-    if (nextRatio === ratio && nextW === w && nextH === h && nextWide === wide) return;
+    if (nextRatio === ratio && nextW === w && nextH === h && nextWide === wide) return false;
     ratio = nextRatio; w = nextW; h = nextH; wide = nextWide;   // тот же порог, что в стилях: ширина окна вместе с полосой прокрутки
     canvas.width = Math.round(w * ratio); canvas.height = Math.round(h * ratio);
     if (!temp) { temp = document.createElement('canvas'); tctx = temp.getContext('2d'); }
     temp.width = canvas.width; temp.height = canvas.height;
     if (!spot) { spot = document.createElement('canvas'); sctx = spot.getContext('2d'); }
     const spotSize = Math.round(SPOT * 2 * ratio); if (spot.width !== spotSize || spot.height !== spotSize) spot.width = spot.height = spotSize;
-    setPoses();
+    setPoses(); return true;
   }
 
   // ---------- главы и прокрутка ----------
   const chapters = Array.from(document.querySelectorAll('.chapter')), sticks = chapters.map((c) => c.querySelector('.stick'));
   const navLinks = Array.from(document.querySelectorAll('.chapters a')), menuLinks = Array.from(document.querySelectorAll('.menu__list a')), progressBar = document.getElementById('progressBar');
   const topCta = document.getElementById('topCta');
-  const veilSide = document.getElementById('veilSide'), veilFrame = document.getElementById('veilFrame'), veilBlur = document.getElementById('veilBlur'), veilDim = document.getElementById('veilDim');
+  const veilSide = document.getElementById('veilSide'), veilFrame = document.getElementById('veilFrame'), veilBlur = document.getElementById('veilBlur'), veilDim = document.getElementById('veilDim'), veilBottom = document.getElementById('veilBottom');
   // Геометрия не меняется при прокрутке: не заставляем Safari пересчитывать layout после каждого кадра.
-  let chapterTops = [], chapterHeights = [];
-  function measureChapters() { chapterTops = chapters.map((c) => c.offsetTop); chapterHeights = chapters.map((c) => c.offsetHeight); }
+  let chapterTops = [], chapterHeights = [], sceneLayout = new Map(), chapterPaint = [];
+  function measureChapters() {
+    chapterTops = chapters.map((c) => c.offsetTop); chapterHeights = chapters.map((c) => c.offsetHeight);
+    sceneLayout = new Map([painText, casesText].filter(Boolean).map((el) => {
+      const stick = el.closest('.stick'), idx = sticks.indexOf(stick);
+      return [el, { idx, bottom: el.offsetTop + el.offsetHeight, height: stick.offsetHeight }];
+    }));
+  }
+  function sceneBottom(el, pageY) {
+    const box = sceneLayout.get(el); if (!box) return h * 0.5;
+    const { idx, bottom, height } = box, paint = chapterPaint[idx] || { opacity: 1, offset: 0 };
+    const top = document.body.classList.contains('pin') ? 0 : Math.max(chapterTops[idx] - pageY, Math.min(0, chapterTops[idx] + chapterHeights[idx] - pageY - height));
+    const scale = reduced ? 1 : 0.96 + paint.opacity * 0.04, offset = reduced ? 0 : paint.offset * 70;
+    return top + height / 2 + (bottom - height / 2) * scale + offset;
+  }
+  // Значения записываются в DOM только при изменении: скрытые главы не создают работу Safari.
+  const styleValues = new WeakMap();
+  function paintStyle(el, key, value) {
+    let cache = styleValues.get(el); if (!cache) styleValues.set(el, cache = {});
+    if (cache[key] === value) return; cache[key] = value; el.style[key] = value;
+  }
+  let navActive = -1;
   let vel = 0;
   let scrollTarget = 0, scrollPos = 0;                 // положение в главах: 0…3, дробная часть — перелёт
   let readScroll = function () {
@@ -248,19 +317,23 @@
       // главы на пути перелёта не всплываютт
       if (touch) {   // те же значения напрямую: CSS-переменные не инвалидируют стили всех потомков на каждом кадре
         const opacity = o.toFixed(3), offset = (-d).toFixed(3);
-        el.style.opacity = opacity; el.style.transform = reduced ? 'none' : `translate3d(0, ${offset * 70}px, 0) scale(${0.96 + opacity * 0.04})`;
-      } else { el.style.setProperty('--o', o.toFixed(3)); el.style.setProperty('--d', (-d).toFixed(3)); }
-      el.toggleAttribute('inert', o < 0.5);
-      const inNow = o > 0.55, was = el.classList.contains('is-in'); el.classList.toggle('is-in', inNow);
+        chapterPaint[i] = { opacity: +opacity, offset: +offset };
+        paintStyle(el, 'opacity', opacity);
+        paintStyle(el, 'visibility', +opacity > 0 ? 'visible' : 'hidden');
+        paintStyle(el, 'willChange', +opacity > 0 && +opacity < 1 ? 'transform, opacity' : 'auto');
+        if (+opacity > 0) paintStyle(el, 'transform', reduced ? 'none' : `translate3d(0, ${offset * 70}px, 0) scale(${0.96 + opacity * 0.04})`);
+      } else { chapterPaint[i] = { opacity: +o.toFixed(3), offset: +(-d).toFixed(3) }; el.style.setProperty('--o', o.toFixed(3)); el.style.setProperty('--d', (-d).toFixed(3)); }
+      if (el.hasAttribute('inert') !== (o < 0.5)) el.toggleAttribute('inert', o < 0.5);
+      const inNow = o > 0.55, was = el.classList.contains('is-in'); if (inNow !== was) el.classList.toggle('is-in', inNow);
       if (i === C && inNow !== was) { if (inNow) setTimeout(() => rollStats(false), 120); else rollStats(true); }
     });
     const active = Math.round(p);
-    navLinks.forEach((a, i) => a.setAttribute('aria-current', String(i === active))); menuLinks.forEach((a, i) => a.setAttribute('aria-current', String(i === active))); topCta.setAttribute('aria-disabled', String(active === 6)); topCta.tabIndex = active === 6 ? -1 : 0;
-    progressBar.style.transform = `scaleX(${(p / (chapters.length - 1)).toFixed(4)})`;
+    if (active !== navActive) { navActive = active; navLinks.forEach((a, i) => a.setAttribute('aria-current', String(i === active))); menuLinks.forEach((a, i) => a.setAttribute('aria-current', String(i === active))); topCta.setAttribute('aria-disabled', String(active === 6)); topCta.tabIndex = active === 6 ? -1 : 0; }
+    paintStyle(progressBar, 'transform', `scaleX(${(p / (chapters.length - 1)).toFixed(4)})`);
     const tail = inGlide() ? near(4, p) + near(5, p) + near(6, p) : smooth(clamp(p - (C + 1), 0, 1)), sys = inGlide() ? near(C + 1, p) : clamp(p - C, 0, 1) * (1 - tail);   // после «Системы» её демо уходит, карта живёт под затемнением
-    veilDim.style.opacity = (tail * 0.74 * (1 - near(4, p)) * (1 - 0.5 * near(5, p))).toFixed(3);   // на «Кейсах» затемнение снимаем: там портрет на чёрном
+    paintStyle(veilDim, 'opacity', (tail * 0.74 * (1 - near(4, p)) * (1 - 0.5 * near(5, p))).toFixed(3));   // на «Кейсах» затемнение снимаем: там портрет на чёрном
     const con = near(C, clamp(scrollPos, 0, poses.length - 1));   // насколько мы у пульта, тем же законом, что и сама глава: вуаль уходит, размытая колонка проявляется вместе с рычагами
-    veilSide.style.opacity = ((1 - sys) * (1 - 0.8 * con)).toFixed(3); veilFrame.style.opacity = sys.toFixed(3); veilBlur.style.opacity = con.toFixed(3);
+    paintStyle(veilSide, 'opacity', ((1 - sys) * (1 - 0.8 * con)).toFixed(3)); paintStyle(veilFrame, 'opacity', sys.toFixed(3)); paintStyle(veilBlur, 'opacity', con.toFixed(3)); paintStyle(veilBottom, 'opacity', con.toFixed(3));
   }
 
   // ---------- состояние смены ----------
@@ -351,8 +424,16 @@
     ctx.fillText(text, x, y); ctx.shadowBlur = 0;
   }
 
-  let last = performance.now(), spawnT = 0;
+  let last = performance.now(), spawnT = 0, frameHandle = 0, menuOpen = false;
+  function scheduleFrame() {
+    if (frameHandle || document.hidden || menuOpen) return;
+    if (canvas.dataset.animationActive !== 'true') canvas.dataset.animationActive = 'true'; frameHandle = requestAnimationFrame(frame);
+  }
+  function pauseFrame() { cancelAnimationFrame(frameHandle); frameHandle = 0; canvas.dataset.animationActive = 'false'; }
+  document.addEventListener('visibilitychange', () => { if (document.hidden) pauseFrame(); else { last = performance.now(); scheduleFrame(); } });
   function frame(now) {
+    frameHandle = 0; if (document.hidden || menuOpen) return;
+    const pageY = window.scrollY;   // все DOM-чтения до записи стилей
     const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt; foldK += ((folded ? 1 : 0) - foldK) * Math.min(1, dt * 5);
     // обновление
     if (reduced || swipeSettling || (gliding && glideIdx >= 0)) { scrollPos = scrollTarget; vel = 0; } else {   // в перелёте камера идёт ровно за ним, без пружины: иначе в конце остаётся хвост и рывок
@@ -459,12 +540,15 @@
       ctx.fillStyle = BLACK; ctx.globalAlpha = smooth(morphK * 1.4); ctx.fillRect(0, 0, w, h);
       let size = wide ? Math.min(w * 0.548, h * 0.95) : Math.min(w * 1.17, h * 0.548), bx = (wide ? w * 0.745 : w * 0.5) - size / 2, by = (wide ? h * 0.53 : h * 0.75) - size / 2;
       if (!wide) {                                       // на телефоне сцена занимает место под текстом главы, сколько бы его ни было
-        const el = F === fields[3] ? casesText : painText, top = el ? el.getBoundingClientRect().bottom + 6 : h * 0.5, room = Math.max(120, h - top - 10);
+        const el = F === fields[3] ? casesText : painText, top = el ? sceneBottom(el, pageY) + 6 : h * 0.5, room = Math.max(120, h - top - 10);
         size = Math.min(w * 1.17, room / 0.86); bx = w / 2 - size / 2; by = top + room / 2 - size * 0.51;
       }
       const G = F.g, at = (x, y) => (Math.min(G - 1, Math.max(0, y * G | 0)) * G + Math.min(G - 1, Math.max(0, x * G | 0)));
-      if (F.grain) {                                     // гранулы слетаются волной, мерцают, а под курсором разлетаются и возвращаются на место
-        const P = F.grain, O = F.go, N = P.length / 8, t = (clock * GP.speed) % 1, band = -0.35 + 1.7 * t, dot = Math.max(0.5, size / 700 * GP.dot), jit = GP.jitter / 10000, B = [[], [], [], []];
+      if (touch && F.grain && !F.grainSprite && !F.baking) bakePortrait(F);
+      if (touch && F.grainSprite) { mobilePortrait(F, bx, by, size); }
+      else if (F.grain) {                                     // гранулы слетаются волной, мерцают, а под курсором разлетаются и возвращаются на место
+        const P = F.grain, O = F.go, N = P.length / 8, t = (clock * GP.speed) % 1, band = -0.35 + 1.7 * t, dot = Math.max(0.5, size / 700 * GP.dot), jit = GP.jitter / 10000, B = grainBuckets;
+        for (const bucket of B) bucket.length = 0;
         const live = hasMouse && !reduced && morphK > 0.9, mxf = live ? (tmx - bx) / size : -9, myf = live ? (tmy - by) / size : -9, R = GP.reach, R2 = R * R;
         const mvx = live && F.pm ? clamp((mxf - F.pm[0]) / Math.max(dt, 0.004), -3, 3) : 0, mvy = live && F.pm ? clamp((myf - F.pm[1]) / Math.max(dt, 0.004), -3, 3) : 0; F.pm = live ? [mxf, myf] : null;
         const damp = Math.exp(-5.5 * dt), spd = Math.hypot(mvx, mvy);
@@ -676,13 +760,14 @@
       }
     }
     ctx.globalAlpha = 1;
-    requestAnimationFrame(frame);
+    scheduleFrame();
   }
 
   // заявка: каждое поле проверяется само и говорит, что не так; форма ничего не отправляет
   // меню разделов на узких экранах: открывается поверх страницы, по пункту летим к разделу и закрываем
   const menu = document.getElementById('menu'), menuBtn = document.getElementById('menuBtn');
   const setMenu = (open) => {
+    menuOpen = open; if (open) pauseFrame(); else { last = performance.now(); scheduleFrame(); }
     menuBtn.setAttribute('aria-expanded', String(open)); menuBtn.setAttribute('aria-label', open ? 'Закрыть разделы' : 'Разделы');
     const br = menuBtn.getBoundingClientRect(); menu.style.setProperty('--mx', `${br.left + br.width / 2}px`); menu.style.setProperty('--my', `${br.top + br.height / 2}px`);   // круг раскрывается из самой кнопки
     if (open) { menu.hidden = false; requestAnimationFrame(() => menu.classList.add('is-open')); document.documentElement.style.overflow = 'hidden'; menu.focus({ preventScroll: true }); }   // фокус на само меню: Tab дальше идёт по пунктам, а рамка не вспыхивает на первом
@@ -834,11 +919,11 @@
     const y = window.scrollY; if (y !== lastY) dir = y > lastY ? 1 : -1; lastY = y;
     readScroll(); clearTimeout(idle); if (!gliding && !finger) idle = setTimeout(settle, touch ? 220 : 130);
   }, { passive: true });
-  addEventListener('resize', () => { resize(); measureChapters(); readScroll(); });
+  addEventListener('resize', () => { if (resize()) { measureChapters(); readScroll(); } });
   document.fonts.ready.then(measureChapters);
   resize(); measureChapters(); apply(); rollStats(true); zone = zoneTarget; radiiTarget.set(zoneShape(zone)); radii.set(radiiTarget);
   for (let i = 0; i < backlog; i++) spawn(Math.random() * 14);
-  readScroll(); scrollPos = scrollTarget; applyChapters();
+  readScroll(); scrollPos = scrollTarget; applyChapters(); document.body.classList.add('flow-ready');
   { const pin = new URLSearchParams(location.search).get('pin'), idx = chapters.findIndex((c) => c.id === pin); if (idx >= 0) { document.body.classList.add('pin'); intro = 1; scrollTarget = scrollPos = idx; readScroll = () => {}; applyChapters(); } }   // ?pin=console показывает одну главу без прокрутки — для снимков
   if (SHOT !== null) { document.body.classList.add('shot'); intro = 1; scrollTarget = scrollPos = +SHOT; readScroll = () => {}; demoT = 4.4; for (let i = 0; i < 900; i++) { agents.forEach((a) => step(a, 0.033)); } flashes.length = 0; }
   if (new URLSearchParams(location.search).has('debug')) {   // ?debug — частота кадров и состояние сцены, для проверки на телефоне
@@ -847,5 +932,5 @@
     const tick = (now) => { n++; if (now - t0 > 500) { box.textContent = `${Math.round(n * 1000 / (now - t0))} fps  dpr ${devicePixelRatio}\nглава ${scrollPos.toFixed(2)}  сцена ${morphK.toFixed(2)}`; n = 0; t0 = now; } requestAnimationFrame(tick); };
     requestAnimationFrame(tick);
   }
-  requestAnimationFrame(frame);
+  scheduleFrame();
 })();

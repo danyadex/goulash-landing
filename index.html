@@ -8,9 +8,9 @@
 <link rel="icon" href="assets/sign.svg" type="image/svg+xml">
 <link rel="preload" href="assets/fonts/onest-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="assets/fonts/onest-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="js/flow.js?v=1018-mobile4" as="script">
-<link rel="preload" href="data/ekb-map.json?v=1018-mobile4" as="fetch" crossorigin>
-<link rel="stylesheet" href="css/tokens.css?v=1018-mobile4">
+<link rel="preload" href="js/flow.js?v=1018-mobile10" as="script">
+<link rel="preload" href="data/ekb-map.json?v=1018-mobile10" as="fetch" crossorigin>
+<link rel="stylesheet" href="css/tokens.css?v=1018-mobile10">
 <style>
   :root { --g: clamp(20px, 5vw, 64px); }
   *, *::before, *::after { box-sizing: border-box; }
@@ -29,6 +29,7 @@
   .veil--blur { opacity: 0; inset: 0 auto 0 0; width: calc(var(--g) + 420px + var(--t-wide, 296px)); background: color-mix(in srgb, var(--black) var(--t-dim, 53%), transparent); -webkit-backdrop-filter: blur(var(--t-blur, 53px)) brightness(var(--t-glow, 0.9)); backdrop-filter: blur(var(--t-blur, 53px)) brightness(var(--t-glow, 0.9));
     -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - var(--t-edge, 232px)), transparent); mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - var(--t-edge, 232px)), transparent); }
   .veil--dim { opacity: 0; background: var(--black); }
+  .veil--bottom { display: none; opacity: 0; }
   body.pin .chapter { position: fixed; inset: 0; height: 100vh; } body.pin .stick[inert] { visibility: hidden; }
   body.shot main, body.shot .top, body.shot .veil { display: none; }
   .muted { color: var(--alpha-white60); }
@@ -246,9 +247,17 @@
     .is-folded .panel__body { display: none; }
     .verdict { padding-top: 12px; font-size: 16px; line-height: 24px; }
     .is-folded .verdict { padding-top: 0; border-top: 0; }
-    .stats { left: 0; right: 0; padding: 56px var(--g) 0; background: linear-gradient(0deg, var(--black) 0%, color-mix(in srgb, var(--black) 85%, transparent) 55%, transparent 100%); bottom: 0; padding-bottom: max(16px, env(safe-area-inset-bottom)); gap: clamp(14px, 5vw, 32px); text-align: left; }
+    .stats { left: 0; right: 0; padding: 56px var(--g) 0; background: none; bottom: 0; padding-bottom: max(16px, env(safe-area-inset-bottom)); gap: clamp(14px, 5vw, 32px); text-align: left; }
     .stats dd { font-size: clamp(28px, 9.6vw, 44px); line-height: 1.1; } .stats dt { font-size: 12px; line-height: 16px; }
     .veil--blur { inset: 0 0 auto 0; width: auto; height: 460px; transition: height .4s cubic-bezier(.2,.75,.2,1); -webkit-mask-image: linear-gradient(#000 0, #000 70%, transparent); mask-image: linear-gradient(#000 0, #000 70%, transparent); }
+    /* На телефоне читаемость даёт градиент: blur 53px над живым canvas заново фильтровал экран при каждом свайпе. */
+    .veil--blur { background: linear-gradient(180deg, var(--black) 0%, color-mix(in srgb, var(--black) 94%, transparent) 65%, transparent); -webkit-backdrop-filter: none; backdrop-filter: none; -webkit-mask-image: none; mask-image: none; transition: none; }
+    .veil--bottom { display: block; background: linear-gradient(0deg, var(--black) 0%, color-mix(in srgb, var(--black) 92%, transparent) 9%, transparent 34%); }
+    .menu { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--black); }
+    .stick { will-change: auto; }
+    /* Текст доступен сразу, пока скачиваются данные карты. */
+    body:not(.flow-ready) .hero .stick { opacity: 1; transform: none; }
+    body:not(.flow-ready) .hero .reveal i { transform: none; }
     body:has(.panel.is-folded) .veil--blur { height: 220px; }
     h2, blockquote { text-wrap: wrap; }
     .who { max-width: none; }
@@ -297,6 +306,7 @@
 <div class="veil veil--frame" id="veilFrame" aria-hidden="true"></div>
 <div class="veil veil--blur" id="veilBlur" aria-hidden="true"></div>
 <div class="veil veil--dim" id="veilDim" aria-hidden="true"></div>
+<div class="veil veil--bottom" id="veilBottom" aria-hidden="true"></div>
 
 <header class="top">
   <a href="#top" aria-label="Goulash.tech, в начало"><img class="logo-full" src="assets/logo-inline-on-dark.svg" alt="Goulash.tech" width="188" height="28"><img class="logo-sign" src="assets/sign.svg" alt="Goulash.tech" width="28" height="28"></a>
@@ -448,8 +458,8 @@
 </main>
 
 <!-- версия в адресах: меняется при каждой правке, чтобы браузер не показывал старые файлы из кэша -->
-<script>window.__v = "1018-mobile4";</script>
-<script src="js/model.js?v=1018-mobile4"></script>
-<script src="js/flow.js?v=1018-mobile4"></script>
+<script>window.__v = "1018-mobile10";</script>
+<script src="js/model.js?v=1018-mobile10"></script>
+<script src="js/flow.js?v=1018-mobile10"></script>
 </body>
 </html>
