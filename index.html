@@ -8,9 +8,9 @@
 <link rel="icon" href="assets/sign.svg" type="image/svg+xml">
 <link rel="preload" href="assets/fonts/onest-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="assets/fonts/onest-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="js/flow.js?v=1018-mobile18" as="script">
-<link rel="preload" href="data/ekb-map.json?v=1018-mobile18" as="fetch" crossorigin>
-<link rel="stylesheet" href="css/tokens.css?v=1018-mobile18">
+<link rel="preload" href="js/flow.js?v=1018-mobile19" as="script">
+<link rel="preload" href="data/ekb-map.json?v=1018-mobile19" as="fetch" crossorigin>
+<link rel="stylesheet" href="css/tokens.css?v=1018-mobile19">
 <style>
   :root { --g: clamp(20px, 5vw, 64px); }
   *, *::before, *::after { box-sizing: border-box; }
@@ -272,6 +272,7 @@
     .system .stick { padding-bottom: 32px; }
     .lead-ch .stick { grid-template-columns: minmax(0, 1fr); align-content: start; padding-top: 96px; padding-bottom: 24px; row-gap: 20px; } .formbox { max-width: 560px; } .lead-ch h2 { margin-bottom: 0; } .lead-ch .lead { display: none; }   /* как в макете: заголовок под шапкой, сразу форма */
     .formbox { padding: 16px; gap: 12px; } .field input:not([type="checkbox"]) { height: 52px; } .field { gap: 6px; } .foot { position: static; } .lead-ch .stick > div:first-child { padding-bottom: 0; }
+    .steps { display: none !important; }   /* на телефоне путь заказа и так виден на карте, подписями */
     .system h2 { font-size: clamp(24px, 8vw, 48px); white-space: normal; } .steps { flex-wrap: wrap; gap: 16px 12px; } .steps li { flex: 1 1 28%; padding: 10px 0 0; } .steps li b { font-size: clamp(15px, 4.4vw, 20px); } .steps li span { display: none; }
     .hero .stick { padding-top: clamp(84px, 14vh, 120px); } .text > .lead:first-child { margin-bottom: clamp(44px, 8vh, 72px); } .text > h1 { margin-bottom: clamp(14px, 2.2vh, 20px); } .text > .cta { margin-top: clamp(28px, 5vh, 48px); }   /* подзаголовок отделён, заголовок и текст под ним — одна мысль */
   }
@@ -463,8 +464,8 @@
 </main>
 
 <!-- версия в адресах: меняется при каждой правке, чтобы браузер не показывал старые файлы из кэша -->
-<script>window.__v = "1018-mobile18";</script>
-<script src="js/model.js?v=1018-mobile18"></script>
-<script src="js/flow.js?v=1018-mobile18"></script>
+<script>window.__v = "1018-mobile19";</script>
+<script src="js/model.js?v=1018-mobile19"></script>
+<script src="js/flow.js?v=1018-mobile19"></script>
 </body>
 </html>

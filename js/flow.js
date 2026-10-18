@@ -225,7 +225,7 @@
     // Общий план мобильного пульта: зона доставки целиком помещается по ширине, даже при максимальной оплате.
     poses = wide
       ? [{ zoom: 1.12, ox: w * 0.68, oy: h * 0.5, rot: -0.2, tilt: 0.86 }, { zoom: 2.7, ox: w * 0.72, oy: h * 0.64, rot: -0.85, tilt: 0.3 }, { zoom: 1.5, ox: w * 0.66, oy: h * 0.44, rot: -0.02, tilt: 0.8 }, { zoom: 0.84, ox: w * 0.42, oy: h * 0.56, rot: 0.2, tilt: 0.6 }, { zoom: 0.7, ox: w * 0.72, oy: h * 0.5, rot: 0.38, tilt: 0.7 }, { zoom: 0.82, ox: w * 0.77, oy: h * 0.52, rot: 0.55, tilt: 0.72 }, { zoom: 0.9, ox: w * 0.5, oy: h * 0.5, rot: 0.72, tilt: 0.75 }]
-      : [{ zoom: 0.9, ox: w * 0.5, oy: h * 0.72, rot: -0.2, tilt: 0.86 }, { zoom: 2.0, ox: w * 0.5, oy: h * 0.8, rot: -0.85, tilt: 0.32 }, { zoom: Math.min(0.55, w / 760), ox: w * 0.5, oy: h * 0.72, rot: -0.05, tilt: 0.8 }, { zoom: 0.62, ox: w * 0.42, oy: h * 0.55, rot: 0.2, tilt: 0.6 }, { zoom: 0.55, ox: w * 0.5, oy: h * 0.6, rot: 0.38, tilt: 0.7 }, { zoom: 0.5, ox: w * 0.5, oy: h * 0.76, rot: 0.55, tilt: 0.72 }, { zoom: 0.7, ox: w * 0.5, oy: h * 0.5, rot: 0.72, tilt: 0.75 }];
+      : [{ zoom: 0.9, ox: w * 0.5, oy: h * 0.72, rot: -0.2, tilt: 0.86 }, { zoom: 2.0, ox: w * 0.5, oy: h * 0.8, rot: -0.85, tilt: 0.32 }, { zoom: Math.min(0.55, w / 760), ox: w * 0.5, oy: h * 0.72, rot: -0.05, tilt: 0.8 }, { zoom: 0.62, ox: w * 0.42, oy: h * 0.66, rot: 0.2, tilt: 0.6 }, { zoom: 0.55, ox: w * 0.5, oy: h * 0.6, rot: 0.38, tilt: 0.7 }, { zoom: 0.5, ox: w * 0.5, oy: h * 0.76, rot: 0.55, tilt: 0.72 }, { zoom: 0.7, ox: w * 0.5, oy: h * 0.5, rot: 0.72, tilt: 0.75 }];
     if (!wide) poses.forEach((pose, i) => { pose.oy += i === C ? 8 : 20; });
   }
   let px = 0, py = 0, mx = -9999, my = -9999, tmx = 0, tmy = 0, hasMouse = false;
