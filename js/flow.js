@@ -933,5 +933,22 @@
     const tick = (now) => { n++; if (now - t0 > 500) { box.textContent = `${Math.round(n * 1000 / (now - t0))} fps  dpr ${devicePixelRatio}\nглава ${scrollPos.toFixed(2)}  сцена ${morphK.toFixed(2)}`; n = 0; t0 = now; } requestAnimationFrame(tick); };
     requestAnimationFrame(tick);
   }
+  if (new URLSearchParams(location.search).has('grain')) {   // ?grain — пульт портрета в «Кейсах»: крутить и скопировать значения
+    const box = document.createElement('div');
+    box.style.cssText = 'position:fixed;z-index:20;right:16px;top:84px;display:grid;gap:8px;width:260px;max-height:calc(100vh - 100px);overflow-y:auto;padding:12px;border-radius:12px;background:#000;box-shadow:0 0 0 1px rgba(255,255,255,.1);font:13px/18px var(--font-family-base);color:rgba(255,255,255,.6)';
+    const KNOBS = [['pic', 'Картинка под зёрнами', 0, 1, 0.05], ['n', 'Число зёрен', 10000, 260000, 2000], ['dot', 'Размер зерна', 0.3, 2.5, 0.05], ['gamma', 'Контраст', 0.6, 3.5, 0.1], ['floor', 'Яркость тёмных зёрен', 0, 0.8, 0.02], ['jitter', 'Дрожание', 0, 30, 1], ['shimmer', 'Мерцание', 0, 0.5, 0.02], ['band', 'Полоса света', 0, 1, 0.05], ['speed', 'Скорость полосы', 0, 0.5, 0.01], ['reach', 'Курсор: радиус', 0, 0.3, 0.01], ['push', 'Курсор: сила', 0, 15, 0.5], ['dust', 'Россыпь: сколько', 0, 12000, 200], ['far', 'Россыпь: как далеко', 0.2, 2.5, 0.1]];
+    const REGRAIN = ['n', 'gamma', 'dust', 'far']; let t = 0;
+    for (const [k, name, min, max, step] of KNOBS) {
+      const l = document.createElement('label'), out = document.createElement('output'), i = document.createElement('input');
+      l.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:2px 8px'; out.style.color = '#fff'; i.style.gridColumn = '1 / -1';
+      i.type = 'range'; i.min = min; i.max = max; i.step = step; i.value = GP[k]; out.textContent = GP[k];
+      i.oninput = () => { GP[k] = +i.value; out.textContent = i.value; if (REGRAIN.includes(k)) { clearTimeout(t); t = setTimeout(() => fields[3] && fields[3].regrain && fields[3].regrain(), 150); } };
+      l.append(name, out, i); box.appendChild(l);
+    }
+    const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Скопировать значения';
+    copy.style.cssText = 'margin-top:4px;padding:10px;border:0;border-radius:8px;background:#fff;color:#000;font:inherit;cursor:pointer';
+    copy.onclick = () => { const v = JSON.stringify(Object.fromEntries(KNOBS.map(([k]) => [k, GP[k]]))); navigator.clipboard && navigator.clipboard.writeText(v); copy.textContent = 'Скопировано'; setTimeout(() => { copy.textContent = 'Скопировать значения'; }, 1500); };
+    box.appendChild(copy); document.body.appendChild(box);
+  }
   scheduleFrame();
 })();
