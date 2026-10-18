@@ -15,6 +15,7 @@
   const SHOT = new URLSearchParams(location.search).get('shot');
   const reduced = SHOT !== null || matchMedia('(prefers-reduced-motion: reduce)').matches;
   const touch = matchMedia('(pointer: coarse)').matches;   // телефон и планшет
+  const snapMQ = matchMedia('(max-width: 899px)'); let snap = snapMQ.matches; snapMQ.addEventListener('change', (e) => { snap = e.matches; });   // как в CSS: на узком экране разделы примагничиваются
   // типограф: короткие предлоги, союзы и частицы приклеиваются к следующему слову, тире — к предыдущему, число — к единице. Так ни на одной ширине они не висят в конце строки
   const SHORT = /(^|[\s(«"„])(а|в|во|и|к|ко|о|об|от|с|со|у|на|за|из|по|до|не|но|ни|для|без|под|над|при|про|что|как|или|это|же)\s+/gi;
   function typo(root) {
@@ -195,7 +196,7 @@
     const y = window.scrollY + h * 0.5; let acc = 0;
     for (let i = 0; i < chapters.length; i++) {
       const top = chapters[i].offsetTop, hgt = chapters[i].offsetHeight;
-      if (y < top + hgt || i === chapters.length - 1) { const local = clamp((y - top) / hgt, 0, 1); acc = i + inOut((local - 0.3) / 0.7); break; }
+      if (y < top + hgt || i === chapters.length - 1) { const local = clamp((y - top) / hgt, 0, 1); acc = i + inOut(snap ? (local - 0.5) / 0.5 : (local - 0.3) / 0.7); break; }   // с примагничиванием раздел стоит ровно на экране
     }
     scrollTarget = clamp(Number.isFinite(acc) ? acc : 0, 0, chapters.length - 1);   // при нулевой высоте окна (скрытая вкладка) деление даёт NaN
   };
@@ -686,7 +687,7 @@
   // в перелёте по шапке все эффекты видят только две главы — откуда и куда летим — и плавно перетекают между ними; главы по пути не вспыхивают
   function near(i, p) { return inGlide() ? (i === glideFrom ? 1 - gk : i === glideIdx ? gk : 0) : smooth(1 - Math.abs(p - i) * 2.2); }                                   // глава, к которой летим по ссылке: сцены по пути не собираются
   function glideTo(y) {
-    cancelAnimationFrame(gliding);
+    cancelAnimationFrame(gliding); if (snap) document.documentElement.style.scrollSnapType = 'none';   // перелёт по ссылке идёт сквозь разделы, магнит на это время снят
     const from = window.scrollY, dist = y - from, t0 = performance.now();
     if (Math.abs(dist) < 2) return;
     glideIdx = chapters.findIndex((c) => Math.abs(c.offsetTop - y) < 4); glideFrom = Math.round(scrollPos);
@@ -695,12 +696,12 @@
       const t = clamp((now - t0) / dur, 0, 1), e = 0.5 - 0.5 * Math.cos(Math.PI * t);   // синусоида: мягкий разгон и торможение, без рывка в середине
       window.scrollTo(0, from + dist * e);
       if (glideIdx >= 0) scrollTarget = mix(p0, glideIdx, e);   // камера летит ровно, без остановок на промежуточных главах
-      if (t < 1) gliding = requestAnimationFrame(tick); else { gliding = 0; glideIdx = -1; glideFrom = -1; gk = 0; readScroll(); }
+      if (t < 1) gliding = requestAnimationFrame(tick); else { document.documentElement.style.scrollSnapType = ''; gliding = 0; glideIdx = -1; glideFrom = -1; gk = 0; readScroll(); }
     };
     gliding = requestAnimationFrame(tick);
   }
   function settle() {
-    if (reduced || gliding || finger) return;                       // пока палец на экране, не тянем: доводка начнётся, когда кончится инерция
+    if (reduced || gliding || finger || snap) return;                       // пока палец на экране, не тянем: доводка начнётся, когда кончится инерция
     const y = window.scrollY, tops = chapters.map((c) => c.offsetTop);
     let i = 0; while (i < tops.length - 1 && y >= tops[i + 1]) i++;
     if (i === tops.length - 1) return;                              // последняя глава крутится свободно
@@ -713,7 +714,7 @@
   addEventListener('touchstart', () => { finger = true; }, { passive: true });
   addEventListener('touchend', () => { finger = false; clearTimeout(idle); idle = setTimeout(settle, 150); }, { passive: true });
   addEventListener('touchcancel', () => { finger = false; }, { passive: true });
-  const stopGlide = () => { if (!gliding) return; cancelAnimationFrame(gliding); gliding = 0; glideIdx = -1; glideFrom = -1; readScroll(); };
+  const stopGlide = () => { if (!gliding) return; cancelAnimationFrame(gliding); document.documentElement.style.scrollSnapType = ''; gliding = 0; glideIdx = -1; glideFrom = -1; readScroll(); };
   addEventListener('wheel', stopGlide, { passive: true }); addEventListener('touchstart', stopGlide, { passive: true }); addEventListener('keydown', stopGlide);
   addEventListener('scroll', () => {
     const y = window.scrollY; if (y !== lastY) dir = y > lastY ? 1 : -1; lastY = y;
