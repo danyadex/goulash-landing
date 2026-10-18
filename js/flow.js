@@ -690,9 +690,9 @@
     tags.sort((a, b) => b.wait - a.wait);
     ctx.font = `400 11px ${FONT}`; ctx.textBaseline = 'middle';
     const placed = [];
-    if (moveK > 0.05 || (!wide && sys > 0.05)) tags.length = 0;   // на «Внедрении» и в «Продукте» на телефоне бирки с минутами мешают графике
+    if (wide ? moveK > 0.05 : near(0, scrollPos) < 0.5) tags.length = 0;   // бирки с минутами: на телефоне только на главной, на десктопе везде, кроме «Внедрения»
     for (const t of tags) {
-      if (placed.length >= 4) break;
+      if (placed.length >= (wide ? 4 : 3)) break;
       if (placed.some((q) => Math.abs(q.x - t.x) < 90 && Math.abs(q.y - t.y) < 30)) continue;
       placed.push(t);
       ctx.shadowColor = BLACK; ctx.shadowBlur = 6; ctx.globalAlpha = (t.late ? 0.9 : 0.5) * shift * read; ctx.fillStyle = WHITE;   // подпись без плашки: тихая, ярче только у опоздавших
