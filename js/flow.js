@@ -261,7 +261,7 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = alpha; ctx.drawImage(spot, Math.round((cxm - SPOT) * ratio), Math.round((cym - SPOT) * ratio));
   }
   function resize() {
-    const nextRatio = Math.min(devicePixelRatio || 1, 1.5), nextW = canvas.clientWidth, nextH = canvas.clientHeight, nextWide = matchMedia('(min-width: 900px)').matches;
+    const nextRatio = Math.min(devicePixelRatio || 1, 2), nextW = canvas.clientWidth, nextH = canvas.clientHeight, nextWide = matchMedia('(min-width: 900px)').matches;
     if (nextRatio === ratio && nextW === w && nextH === h && nextWide === wide) return false;
     ratio = nextRatio; w = nextW; h = nextH; wide = nextWide;   // тот же порог, что в стилях: ширина окна вместе с полосой прокрутки
     canvas.width = Math.round(w * ratio); canvas.height = Math.round(h * ratio);
