@@ -321,7 +321,7 @@
     const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt; foldK += ((folded ? 1 : 0) - foldK) * Math.min(1, dt * 5);
     // обновление
     if (reduced || (gliding && glideIdx >= 0)) { scrollPos = scrollTarget; vel = 0; } else {   // в перелёте камера идёт ровно за ним, без пружины: иначе в конце остаётся хвост и рывок
-      vel += ((scrollTarget - scrollPos) * 38 - vel * 11.5) * dt; scrollPos += vel * dt; }   // пружина без перелёта
+      vel += ((scrollTarget - scrollPos) * (touch ? 64 : 38) - vel * (touch ? 16 : 11.5)) * dt; scrollPos += vel * dt; }   // пружина без перелёта
     applyChapters();
     const sys = inGlide() ? near(C + 1, scrollPos) : smooth(clamp(scrollPos - C, 0, 1)) * (1 - smooth(clamp(scrollPos - (C + 1), 0, 1))), pain = near(1, scrollPos), moveK = near(5, scrollPos), shift = (1 - sys * 0.82) * (1 - smooth(morphK * 3)) * (1 - moveK * 0.9);   // значки карты гаснут в начале сборки сцены, а не к её середине
     const read = SHOT !== null ? (+SHOT >= 1 ? 1 : 0) : inGlide() ? 1 - near(0, scrollPos) : smooth(clamp(scrollPos, 0, 1));   // 0 — огоньки, 1 — метки для чтения      // в третьей главе смена уходит на второй план
@@ -690,7 +690,7 @@
     const from = window.scrollY, dist = y - from, t0 = performance.now();
     if (Math.abs(dist) < 2) return;
     glideIdx = chapters.findIndex((c) => Math.abs(c.offsetTop - y) < 4); glideFrom = Math.round(scrollPos);
-    const p0 = scrollPos, steps = glideIdx >= 0 ? Math.abs(glideIdx - p0) : Math.abs(dist) / (h * 2.2), dur = clamp(800 + 520 * Math.max(0, steps - 1), 800, 2200);   // одна глава — 0,8 с, каждая следующая добавляет полсекунды
+    const p0 = scrollPos, steps = glideIdx >= 0 ? Math.abs(glideIdx - p0) : Math.abs(dist) / (h * 2.2), dur = touch ? clamp(560 + 380 * Math.max(0, steps - 1), 560, 1600) : clamp(800 + 520 * Math.max(0, steps - 1), 800, 2200);   // одна глава — 0,8 с, каждая следующая добавляет полсекунды
     const tick = (now) => {
       const t = clamp((now - t0) / dur, 0, 1), e = 0.5 - 0.5 * Math.cos(Math.PI * t);   // синусоида: мягкий разгон и торможение, без рывка в середине
       window.scrollTo(0, from + dist * e);
@@ -711,13 +711,13 @@
   document.querySelectorAll('a[href^="#"]').forEach((el) => el.addEventListener('click', (e) => { const t = document.querySelector(el.getAttribute('href')); if (!t) return; e.preventDefault(); if (reduced) window.scrollTo(0, t.offsetTop); else glideTo(t.offsetTop); }));
   let finger = false;
   addEventListener('touchstart', () => { finger = true; }, { passive: true });
-  addEventListener('touchend', () => { finger = false; clearTimeout(idle); idle = setTimeout(settle, 220); }, { passive: true });
+  addEventListener('touchend', () => { finger = false; clearTimeout(idle); idle = setTimeout(settle, 150); }, { passive: true });
   addEventListener('touchcancel', () => { finger = false; }, { passive: true });
   const stopGlide = () => { if (!gliding) return; cancelAnimationFrame(gliding); gliding = 0; glideIdx = -1; glideFrom = -1; readScroll(); };
   addEventListener('wheel', stopGlide, { passive: true }); addEventListener('touchstart', stopGlide, { passive: true }); addEventListener('keydown', stopGlide);
   addEventListener('scroll', () => {
     const y = window.scrollY; if (y !== lastY) dir = y > lastY ? 1 : -1; lastY = y;
-    readScroll(); clearTimeout(idle); if (!gliding) idle = setTimeout(settle, touch ? 220 : 130);
+    readScroll(); clearTimeout(idle); if (!gliding) idle = setTimeout(settle, touch ? 150 : 130);
   }, { passive: true });
   addEventListener('resize', () => { resize(); readScroll(); });
   resize(); apply(); rollStats(true); zone = zoneTarget; radiiTarget.set(zoneShape(zone)); radii.set(radiiTarget);
