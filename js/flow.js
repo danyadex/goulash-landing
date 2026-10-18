@@ -24,6 +24,7 @@
   }
   typo(document.body); window.__typo = typo;
   const VQ = '?v=' + (window.__v || '');
+  const idlePause = () => new Promise((resolve) => { if (window.requestIdleCallback) window.requestIdleCallback(resolve, { timeout: 80 }); else setTimeout(resolve, 16); });
   const painText = document.querySelector('.pain .text'), casesText = document.querySelector('.cases .stick > div');               // версия дописывается ко всем файлам, чтобы не цеплялся кэш
   const D = await fetch('data/ekb-map.json' + VQ).then((r) => r.json());
   const N = D.nodes.length / 2, nx = (i) => D.nodes[i * 2], ny = (i) => D.nodes[i * 2 + 1];
@@ -97,10 +98,12 @@
   // ---------- камера: три позы, между ними плавный перелёт ----------
   let w = 0, h = 0, ratio = 1, wide = true, temp = null, tctx = null, spot = null, sctx = null;
   const SPOT = 200;
+  // Плотный портрет в Safari: маленькие пути вместо одного пересекающегося контура на 160 тысяч зёрен.
+  const grainLayer = document.createElement('canvas'), grainCtx = grainLayer.getContext('2d');
   const cam = { zoom: 1, ox: 0, oy: 0, rot: 0, tilt: 1 };
   // параметры портрета из зерен
   const GP = { pic: 0.6, n: 218000, gamma: 3.3, dot: 0.5, jitter: 15, floor: 0.74, shimmer: 0.22, band: 0.25, speed: 0.12, reach: 0.24, push: 3.5, dust: 3200, far: 1.1 };   // значения выставил Даниил 13.10; dust и far — россыпь вокруг портрета
-  if (matchMedia('(max-width: 899px)').matches) Object.assign(GP, { n: 160000, dot: 0.9, dust: 700, pic: 0.95 });   // на телефоне мелкие зёрна сливаются в шум: их меньше, они крупнее
+  if (matchMedia('(max-width: 899px)').matches) Object.assign(GP, { n: 16000, dot: 0.9, dust: 700, pic: 0.95 });   // на телефоне мелкие зёрна сливаются в шум: их меньше, они крупнее
   const C = 2;                                         // номер главы с пультом: 0 начало, 1 вечер, 2 пульт, 3 система
   let poses = [], foldK = 0, folded = false;
   const dimC = document.createElement('canvas'), dctx = dimC.getContext('2d');   // служебный холст для мягкой маски портрета
@@ -111,8 +114,13 @@
   // картинки лежат в поле 1000×1000 в одном масштабе: исходный квадрат занимает 840 px, расширенные версии уходят в поля (research/scenes/place.py); прямоугольники ниже уже в координатах этого поля
   // у каждого момента своё поле; hot — прямоугольники главного объекта, он светится голубым; bright — второй герой, он просто ярче
   // сцены «Часа пик» и портрет нужны не на первом экране: грузим их, когда первый кадр уже нарисован
-  const loadScenes = () => [['data/field-1900.json', [[0.097, 0.622, 0.403, 0.639]], [[0.634, 1, 0.198, 0.478], [0.755, 1, 0.478, 0.59], [0.634, 1, 0.59, 1]]], ['data/field-1920.json', [[0, 0.74, 0.122, 0.66]]], ['data/field-2010.json', [[0.433, 0.71, 0.08, 0.399], [0.307, 0.811, 0.382, 0.735], [0.307, 0.752, 0.735, 0.92]]],
-   ['data/field-case.json', [[0.3, 0.8, 0.5, 0.74]], [], 'assets/case-portrait.jpg', [[0.4, 0.66, 0.09, 0.47]], 'assets/case-outline.jpg', 'assets/case-dots.jpg']].forEach(([url, hot, bright, pic, quiet, rim, grain], idx) => fetch(url + VQ).then((r) => r.json()).then((j) => {
+  const sceneSources = [['data/field-1900.json', [[0.097, 0.622, 0.403, 0.639]], [[0.634, 1, 0.198, 0.478], [0.755, 1, 0.478, 0.59], [0.634, 1, 0.59, 1]]], ['data/field-1920.json', [[0, 0.74, 0.122, 0.66]]], ['data/field-2010.json', [[0.433, 0.71, 0.08, 0.399], [0.307, 0.811, 0.382, 0.735], [0.307, 0.752, 0.735, 0.92]]],
+   ['data/field-case.json', [[0.3, 0.8, 0.5, 0.74]], [], 'assets/case-portrait.jpg', [[0.4, 0.66, 0.09, 0.47]], 'assets/case-outline.jpg', 'assets/case-dots.jpg']];
+  const fieldLoads = [];
+  function loadField(idx) {
+    if (fieldLoads[idx]) return fieldLoads[idx];
+    const [url, hot, bright, pic, quiet, rim, grain] = sceneSources[idx];
+    return fieldLoads[idx] = fetch(url + VQ).then((r) => r.json()).then((j) => {
     const f = { g: j.g, mask: Uint8Array.from(j.mask), ang: Uint8Array.from(j.angle), hot, bright: bright || [], quiet: quiet || [] }, cdf = new Float32Array(j.mask.length); let acc = 0;
     for (let i = 0; i < cdf.length; i++) { acc += Math.pow(j.mask[i] / 255, 1.6); cdf[i] = acc; }
     f.pick = () => { const r = Math.random() * acc; let lo = 0, hi = cdf.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (cdf[m] < r) lo = m + 1; else hi = m; } return [((lo % j.g) + Math.random()) / j.g, (Math.floor(lo / j.g) + Math.random()) / j.g]; };
@@ -123,12 +131,22 @@
     f.more = () => { if (f.bright.length && Math.random() < 0.23) for (let k = 0; k < 12; k++) { const p = f.pick(); if (f.bright.some((r) => p[0] > r[0] && p[0] < r[1] && p[1] > r[2] && p[1] < r[3])) return p; } return f.pick(); };   // второму герою достаётся больше линий
     if (grain) {                                         // гранулярный портрет: десятки тысяч зёрен, расставленных по самой картинке, каждое со своим размером
       const im = f.gimg = new Image(); im.onload = () => {
-        const c = document.createElement('canvas'), n = 1600; c.width = c.height = n; const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(im, 0, 0, n, n);
+        const c = document.createElement('canvas'), n = touch ? 800 : 1600; c.width = c.height = n; const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(im, 0, 0, n, n);
+        if (touch) f.img = im;   // тот же чёткий исходник, пока зерно готовится порциями
         const d = x.getImageData(0, 0, n, n).data, cdf = new Float32Array(n * n);
-        f.regrain = () => {                              // расставить зёрна заново — после смены их числа или контраста
-          let acc = 0; for (let i = 0; i < n * n; i++) { acc += Math.pow(d[i * 4 + 1] / 255, GP.gamma); cdf[i] = acc; }
+        let grainJob = 0;
+        f.regrain = async () => {                              // расставить зёрна заново — после смены их числа или контраста
+          const job = ++grainJob, weights = Float64Array.from({ length: 256 }, (_, v) => Math.pow(v / 255, GP.gamma));
+          let acc = 0;
+          for (let start = 0; start < n * n; start += 65536) {
+            const end = Math.min(start + 65536, n * n);
+            for (let i = start; i < end; i++) { acc += weights[d[i * 4 + 1]]; cdf[i] = acc; }
+            if (touch) { await idlePause(); if (job !== grainJob) return; }
+          }
           const N = Math.round(GP.n), P = new Float32Array(N * 8);
-          for (let k = 0; k < N; k++) { const r = Math.random() * acc; let lo = 0, hi = cdf.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (cdf[m] < r) lo = m + 1; else hi = m; }
+          for (let k = 0; k < N; k++) {
+            if (touch && k && k % 4096 === 0) { await idlePause(); if (job !== grainJob) return; }
+            const r = Math.random() * acc; let lo = 0, hi = cdf.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (cdf[m] < r) lo = m + 1; else hi = m; }
             const q = Math.random();
             P[k * 8] = ((lo % n) + Math.random()) / n; P[k * 8 + 1] = (Math.floor(lo / n) + Math.random()) / n; P[k * 8 + 2] = d[lo * 4 + 1] / 255; P[k * 8 + 3] = Math.random() * 6.283; P[k * 8 + 4] = (Math.random() - 0.5) * 2; P[k * 8 + 5] = (Math.random() - 0.5) * 2;
             P[k * 8 + 6] = q < 0.8 ? 0.7 + Math.random() * 0.5 : q < 0.97 ? 1.2 + Math.random() * 0.6 : 1.8 + Math.random() * 1; }   // зерно разного калибра, как на исходнике
@@ -138,19 +156,22 @@
             U[k * 5] = 0.5 + Math.cos(th) * rr * 1.08; U[k * 5 + 1] = 0.5 + Math.sin(th) * rr * 0.92; U[k * 5 + 2] = Math.pow(1 - fr, 1.4); U[k * 5 + 3] = Math.random() * 6.283; U[k * 5 + 4] = q < 0.75 ? 0.8 + Math.random() * 0.7 : q < 0.96 ? 1.5 + Math.random() * 1 : 2.6 + Math.random() * 1.6; }
           f.dust = U;
         };
-        (window.requestIdleCallback || ((cb) => setTimeout(cb, 1200)))(() => f.regrain(), { timeout: 5000 });   // двести тысяч зёрен считаются в паузу, а не в первые секунды, когда человек уже жмёт кнопки
+        (window.requestIdleCallback || ((cb) => setTimeout(cb, 1200)))(() => f.regrain(), { timeout: 5000 });   // зерно готовится в паузу; на телефоне работа разбита на короткие порции
       }; im.src = grain.replace('.jpg', '-cyan.jpg') + VQ;
     }
-    if (rim) { f.rim = new Image(); f.rim.src = rim + VQ; }   // тонкий голубой контур фигуры
-    if (pic) { f.img = new Image(); f.img.src = pic + VQ; }   // quiet — лицо: там линии почти гаснут, чтобы не искажать черты   // у портрета под линиями лежит сам рисунок: лицо должно остаться узнаваемым
+    if (rim && !(touch && grain)) { f.rim = new Image(); f.rim.src = rim + VQ; }   // тонкий голубой контур фигуры
+    if (pic && !(touch && grain)) { f.img = new Image(); f.img.src = pic + VQ; }   // quiet — лицо: там линии почти гаснут, чтобы не искажать черты   // у портрета под линиями лежит сам рисунок: лицо должно остаться узнаваемым
     fields[idx] = f; if (!F && idx < 3) F = f;
     if (!scene.ready) {
       const near = []; for (let i = 0; i < D.edges.length; i += 2) { const a = D.edges[i], b = D.edges[i + 1], d = Math.hypot((nx(a) + nx(b)) / 2 - KX, (ny(a) + ny(b)) / 2 - KY); if (d < 640) near.push([nx(a), ny(a), nx(b), ny(b)]); }
       for (let i = 0; i < FLOW_N; i++) { const [x, y] = f.pick(), t = new Float32Array(TRAIL * 2); t[0] = x; t[1] = y; scene.parts.push({ x, y, t, n: 1, dx: Math.random() - 0.5, dy: Math.random() - 0.5, sp: 0.03 + Math.random() * 0.05, life: Math.random() * 4, age: 0, src: near[(i * 37) % near.length], band: i % 10, inZone: i % 6 === 0, amb: false }); }
       scene.ready = true;
     }
-  }).catch(() => {}));
-  (window.requestIdleCallback || setTimeout)(loadScenes, { timeout: 600 });
+  }).catch(() => {});
+  }
+  const loadScenes = () => { loadField(0); if (!touch) { loadField(1); loadField(2); loadField(3); } };
+  // Загрузка сцен начинается после первого отрисованного кадра; fallback действительно ждёт кадр и на Safari без requestIdleCallback.
+  requestAnimationFrame(() => { if (window.requestIdleCallback) window.requestIdleCallback(loadScenes, { timeout: 600 }); else setTimeout(loadScenes, 16); });
   function setPoses() {
     poses = wide
       ? [{ zoom: 1.12, ox: w * 0.68, oy: h * 0.5, rot: -0.2, tilt: 0.86 }, { zoom: 2.7, ox: w * 0.72, oy: h * 0.64, rot: -0.85, tilt: 0.3 }, { zoom: 1.5, ox: w * 0.66, oy: h * 0.44, rot: -0.02, tilt: 0.8 }, { zoom: 0.84, ox: w * 0.42, oy: h * 0.56, rot: 0.2, tilt: 0.6 }, { zoom: 0.7, ox: w * 0.72, oy: h * 0.5, rot: 0.38, tilt: 0.7 }, { zoom: 0.82, ox: w * 0.77, oy: h * 0.52, rot: 0.55, tilt: 0.72 }, { zoom: 0.9, ox: w * 0.5, oy: h * 0.5, rot: 0.72, tilt: 0.75 }]
@@ -176,10 +197,14 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = alpha; ctx.drawImage(spot, Math.round((cxm - SPOT) * ratio), Math.round((cym - SPOT) * ratio));
   }
   function resize() {
-    ratio = Math.min(devicePixelRatio || 1, 1.5); w = canvas.clientWidth; h = canvas.clientHeight; wide = matchMedia('(min-width: 900px)').matches;   // тот же порог, что в стилях: ширина окна вместе с полосой прокрутки
+    const nextRatio = Math.min(devicePixelRatio || 1, 1.5), nextW = canvas.clientWidth, nextH = canvas.clientHeight, nextWide = matchMedia('(min-width: 900px)').matches;
+    if (nextRatio === ratio && nextW === w && nextH === h && nextWide === wide) return;
+    ratio = nextRatio; w = nextW; h = nextH; wide = nextWide;   // тот же порог, что в стилях: ширина окна вместе с полосой прокрутки
     canvas.width = Math.round(w * ratio); canvas.height = Math.round(h * ratio);
-    temp = document.createElement('canvas'); temp.width = canvas.width; temp.height = canvas.height; tctx = temp.getContext('2d');
-    spot = document.createElement('canvas'); spot.width = spot.height = Math.round(SPOT * 2 * ratio); sctx = spot.getContext('2d');
+    if (!temp) { temp = document.createElement('canvas'); tctx = temp.getContext('2d'); }
+    temp.width = canvas.width; temp.height = canvas.height;
+    if (!spot) { spot = document.createElement('canvas'); sctx = spot.getContext('2d'); }
+    const spotSize = Math.round(SPOT * 2 * ratio); if (spot.width !== spotSize || spot.height !== spotSize) spot.width = spot.height = spotSize;
     setPoses();
   }
 
@@ -188,13 +213,16 @@
   const navLinks = Array.from(document.querySelectorAll('.chapters a')), menuLinks = Array.from(document.querySelectorAll('.menu__list a')), progressBar = document.getElementById('progressBar');
   const topCta = document.getElementById('topCta');
   const veilSide = document.getElementById('veilSide'), veilFrame = document.getElementById('veilFrame'), veilBlur = document.getElementById('veilBlur'), veilDim = document.getElementById('veilDim');
+  // Геометрия не меняется при прокрутке: не заставляем Safari пересчитывать layout после каждого кадра.
+  let chapterTops = [], chapterHeights = [];
+  function measureChapters() { chapterTops = chapters.map((c) => c.offsetTop); chapterHeights = chapters.map((c) => c.offsetHeight); }
   let vel = 0;
   let scrollTarget = 0, scrollPos = 0;                 // положение в главах: 0…3, дробная часть — перелёт
   let readScroll = function () {
-    if (gliding && glideIdx >= 0) return;               // во время перелёта по ссылке положение ведёт сам перелёт
+    if (swipeSettling || (gliding && glideIdx >= 0)) return;               // во время перелёта по ссылке положение ведёт сам перелёт
     const y = window.scrollY + h * 0.5; let acc = 0;
     for (let i = 0; i < chapters.length; i++) {
-      const top = chapters[i].offsetTop, hgt = chapters[i].offsetHeight;
+      const top = chapterTops[i], hgt = chapterHeights[i];
       if (y < top + hgt || i === chapters.length - 1) { const local = clamp((y - top) / hgt, 0, 1); acc = i + inOut((local - 0.3) / 0.7); break; }
     }
     scrollTarget = clamp(Number.isFinite(acc) ? acc : 0, 0, chapters.length - 1);   // при нулевой высоте окна (скрытая вкладка) деление даёт NaN
@@ -202,6 +230,10 @@
 
   function applyChapters() {
     const p = clamp(scrollPos, 0, poses.length - 1), i0 = Math.min(poses.length - 2, Math.floor(p)), i1 = i0 + 1, t = p - i0;
+    if (touch) {   // на первом экране не скачиваем будущие моменты и портрет; меню запускает нужные файлы сразу
+      if (p > 0.25 || glideIdx === 1) { loadField(1); loadField(2); }
+      if (p > 1.15 || glideIdx === 4) loadField(3);
+    }
     if (gliding && glideIdx >= 0 && glideFrom >= 0 && glideIdx !== glideFrom) {   // перелёт по ссылке: камера идёт прямо от позы, откуда улетели, к позе, куда летим, не заезжая в позы глав по пути
       const k = clamp((p - glideFrom) / (glideIdx - glideFrom), 0, 1); gk = k;
       for (const key of ['zoom', 'ox', 'oy', 'rot', 'tilt']) cam[key] = mix(poses[glideFrom][key], poses[glideIdx][key], k);
@@ -214,7 +246,10 @@
       if (inGlide()) { const dir = Math.sign(glideIdx - glideFrom);   // в перелёте текст уходит и приходит по доле пути, а не по главам: на дальнем прыжке он не обрывается
         if (i === glideFrom) { o = smooth(1 - gk * 2.4); d = gk * dir * 0.6; } else if (i === glideIdx) { o = smooth(1 - (1 - gk) * 2.4); d = -(1 - gk) * dir * 0.6; } else { o = 0; d = 1; } }
       // главы на пути перелёта не всплываютт
-      el.style.setProperty('--o', o.toFixed(3)); el.style.setProperty('--d', (-d).toFixed(3));
+      if (touch) {   // те же значения напрямую: CSS-переменные не инвалидируют стили всех потомков на каждом кадре
+        const opacity = o.toFixed(3), offset = (-d).toFixed(3);
+        el.style.opacity = opacity; el.style.transform = reduced ? 'none' : `translate3d(0, ${offset * 70}px, 0) scale(${0.96 + opacity * 0.04})`;
+      } else { el.style.setProperty('--o', o.toFixed(3)); el.style.setProperty('--d', (-d).toFixed(3)); }
       el.toggleAttribute('inert', o < 0.5);
       const inNow = o > 0.55, was = el.classList.contains('is-in'); el.classList.toggle('is-in', inNow);
       if (i === C && inNow !== was) { if (inNow) setTimeout(() => rollStats(false), 120); else rollStats(true); }
@@ -320,7 +355,7 @@
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt; foldK += ((folded ? 1 : 0) - foldK) * Math.min(1, dt * 5);
     // обновление
-    if (reduced || (gliding && glideIdx >= 0)) { scrollPos = scrollTarget; vel = 0; } else {   // в перелёте камера идёт ровно за ним, без пружины: иначе в конце остаётся хвост и рывок
+    if (reduced || swipeSettling || (gliding && glideIdx >= 0)) { scrollPos = scrollTarget; vel = 0; } else {   // в перелёте камера идёт ровно за ним, без пружины: иначе в конце остаётся хвост и рывок
       vel += ((scrollTarget - scrollPos) * 38 - vel * 11.5) * dt; scrollPos += vel * dt; }   // пружина без перелёта
     applyChapters();
     const sys = inGlide() ? near(C + 1, scrollPos) : smooth(clamp(scrollPos - C, 0, 1)) * (1 - smooth(clamp(scrollPos - (C + 1), 0, 1))), pain = near(1, scrollPos), moveK = near(5, scrollPos), shift = (1 - sys * 0.82) * (1 - smooth(morphK * 3)) * (1 - moveK * 0.9);   // значки карты гаснут в начале сборки сцены, а не к её середине
@@ -351,7 +386,10 @@
 
     // рисование
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const [kxs, kys] = toScreen(KX, KY), far = Math.hypot(w, h) * 1.05, grow = ease(intro);
+    const [kxs, kys] = toScreen(KX, KY), far = Math.hypot(w, h) * 1.05, grow = ease(intro), z = cam.zoom;
+    let demoHead = null;
+    // При morphK >= .8 карта полностью закрыта чёрной сценой даже при предельном dt: её пиксели не видны.
+    if (!touch || morphK < 0.8) {
     if (intro < 1) masked(baseLayer, kxs, kys, far * grow + 30, 0.35, 1);
     else { ctx.setTransform(ratio, 0, 0, ratio, 0, 0); ctx.globalAlpha = 1; drawLayer(ctx, baseLayer); }
     if (hasMouse) spotlight(glowLayer, mx, my, 0.9);
@@ -366,7 +404,7 @@
       ctx.save(); ctx.translate(kxs, kys); ctx.scale(1, cam.tilt); ctx.translate(-kxs, -kys); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(kxs, kys, zone * cam.zoom * 1.25, 0, 7); ctx.fill(); ctx.restore();
     }
     ctx.save(); applyCamera(ctx); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    const zk = 0.2 + 0.8 * ease((intro - 0.25) / 0.75), z = cam.zoom;
+    const zk = 0.2 + 0.8 * ease((intro - 0.25) / 0.75);
     zonePath(zk); ctx.fillStyle = CYAN; ctx.globalAlpha = 0.035 * shift; ctx.fill();
     ctx.strokeStyle = WHITE; ctx.globalAlpha = 0.9 * zk * shift; ctx.lineWidth = 1.6 / z; ctx.shadowColor = WHITE; ctx.shadowBlur = 14; ctx.stroke(); ctx.shadowBlur = 0;
     zonePath(zk * (1.045 + Math.sin(clock * 1.2) * 0.008)); ctx.globalAlpha = 0.35 * shift; ctx.lineWidth = 1 / z; ctx.setLineDash([1.5 / z, 5 / z]); ctx.stroke(); ctx.setLineDash([]);
@@ -390,7 +428,6 @@
       }
     }
     // путь одного заказа
-    let demoHead = null;
     if (sys > 0.02) {
       const run = clamp((demoT - STAGE[2]) / (STAGE[3] - STAGE[2]), 0, 1), drawn = stage >= 2 ? (stage === 2 ? ease(run) : 1) : 0;
       ctx.strokeStyle = WHITE; ctx.globalAlpha = 0.28 * sys; ctx.lineWidth = 1.2 / z; ctx.setLineDash([3 / z, 5 / z]);
@@ -402,6 +439,8 @@
       }
     }
     ctx.restore();
+    }
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 
     const caseK = near(4, scrollPos);                              // глава «Кейсы»: линии собирают портрет
     const passing = gliding && glideIdx >= 0, want = scene.ready ? (pain > 0.5 && !(passing && glideIdx !== 1) ? fields[Math.max(0, pst)] : caseK > 0.5 && !(passing && glideIdx !== 4) ? fields[3] : null) || null : null;
@@ -454,7 +493,24 @@
           for (let k = 0; k < M; k++) { const i = k * 5, ph = U[i + 3], x = U[i] + Math.sin(clock * 0.11 + ph) * 0.02, y = U[i + 1] + Math.cos(clock * 0.09 + ph * 1.3) * 0.02 - ((clock * 0.004 + ph) % 0.06), a = U[i + 2] * (0.5 + 0.5 * Math.sin(clock * 0.8 + ph * 2)) * dk;
             if (a > 0.06) B[a > 0.7 ? 3 : a > 0.45 ? 2 : a > 0.22 ? 1 : 0].push(bx + x * size, by + y * size, dot * 1.6 * U[i + 4]); } }
         ctx.fillStyle = CYAN;
-        for (let b = 0; b < 4; b++) { const L = B[b]; ctx.globalAlpha = [0.28, 0.5, 0.74, 1][b]; ctx.beginPath(); for (let q = 0; q < L.length; q += 3) ctx.rect(L[q], L[q + 1], L[q + 2], L[q + 2]); ctx.fill(); }
+        if (touch) {
+          if (grainLayer.width !== canvas.width || grainLayer.height !== canvas.height) { grainLayer.width = canvas.width; grainLayer.height = canvas.height; }
+          grainCtx.setTransform(ratio, 0, 0, ratio, 0, 0); grainCtx.fillStyle = CYAN;
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          for (let b = 0; b < 4; b++) {
+            const L = B[b]; grainCtx.clearRect(0, 0, w, h);
+            for (let start = 0; start < L.length; start += 6144) {
+              grainCtx.beginPath(); const end = Math.min(start + 6144, L.length);
+              for (let q = start; q < end; q += 3) grainCtx.rect(L[q], L[q + 1], L[q + 2], L[q + 2]);
+              grainCtx.fill();
+            }
+            // Сначала непрозрачная маска объединяет все зёрна группы, затем её общая яркость применяется один раз.
+            ctx.globalAlpha = [0.28, 0.5, 0.74, 1][b]; ctx.drawImage(grainLayer, 0, 0);
+          }
+          ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+        } else {
+          for (let b = 0; b < 4; b++) { const L = B[b]; ctx.globalAlpha = [0.28, 0.5, 0.74, 1][b]; ctx.beginPath(); for (let q = 0; q < L.length; q += 3) ctx.rect(L[q], L[q + 1], L[q + 2], L[q + 2]); ctx.fill(); }
+        }
         ctx.globalAlpha = 1;
       } else if (F.img && F.img.complete && F.img.naturalWidth) {
         const fade = smooth((morphK - 0.5) / 0.5) * (1 - 0.6 * Math.sin(Math.PI * swapK));
@@ -677,19 +733,19 @@
   form.addEventListener('input', () => { state.weather = new FormData(form).get('weather'); state.rate = +form.rate.value; state.bonus = form.bonus.checked; state.weatherPay = form.weatherPay.checked; apply(); });
   form.addEventListener('reset', () => setTimeout(() => form.dispatchEvent(new Event('input'))));
   form.addEventListener('submit', (e) => e.preventDefault());
-  addEventListener('pointermove', (e) => { tmx = e.clientX; tmy = e.clientY; if (!hasMouse) { mx = tmx; my = tmy; hasMouse = true; } });
+  addEventListener('pointermove', (e) => { if (e.pointerType === 'touch') return; tmx = e.clientX; tmy = e.clientY; if (!hasMouse) { mx = tmx; my = tmy; hasMouse = true; } });
   document.addEventListener('pointerleave', () => { hasMouse = false; });
   // доводка: начал крутить — страница сама плавно доезжает до ближайшей главы
   let lastY = window.scrollY, dir = 1, idle = 0, gliding = 0;
-  let glideIdx = -1, glideFrom = -1, gk = 0;
+  let glideIdx = -1, glideFrom = -1, gk = 0, swipeSettling = false;
   const inGlide = () => gliding && glideIdx >= 0 && glideFrom >= 0 && glideIdx !== glideFrom;
   // в перелёте по шапке все эффекты видят только две главы — откуда и куда летим — и плавно перетекают между ними; главы по пути не вспыхивают
   function near(i, p) { return inGlide() ? (i === glideFrom ? 1 - gk : i === glideIdx ? gk : 0) : smooth(1 - Math.abs(p - i) * 2.2); }                                   // глава, к которой летим по ссылке: сцены по пути не собираются
   function glideTo(y) {
-    cancelAnimationFrame(gliding);
+    cancelAnimationFrame(gliding); gliding = 0; swipeSettling = false; glideIdx = glideFrom = -1; gk = 0;
     const from = window.scrollY, dist = y - from, t0 = performance.now();
     if (Math.abs(dist) < 2) return;
-    glideIdx = chapters.findIndex((c) => Math.abs(c.offsetTop - y) < 4); glideFrom = Math.round(scrollPos);
+    glideIdx = chapterTops.findIndex((top) => Math.abs(top - y) < 4); glideFrom = Math.round(scrollPos);
     const p0 = scrollPos, steps = glideIdx >= 0 ? Math.abs(glideIdx - p0) : Math.abs(dist) / (h * 2.2), dur = clamp(800 + 520 * Math.max(0, steps - 1), 800, 2200);   // одна глава — 0,8 с, каждая следующая добавляет полсекунды
     const tick = (now) => {
       const t = clamp((now - t0) / dur, 0, 1), e = 0.5 - 0.5 * Math.cos(Math.PI * t);   // синусоида: мягкий разгон и торможение, без рывка в середине
@@ -701,7 +757,7 @@
   }
   function settle() {
     if (reduced || gliding || finger) return;                       // пока палец на экране, не тянем: доводка начнётся, когда кончится инерция
-    const y = window.scrollY, tops = chapters.map((c) => c.offsetTop);
+    const y = window.scrollY, tops = chapterTops;
     let i = 0; while (i < tops.length - 1 && y >= tops[i + 1]) i++;
     if (i === tops.length - 1) return;                              // последняя глава крутится свободно
     const k = (y - tops[i]) / (tops[i + 1] - tops[i]);
@@ -709,18 +765,78 @@
     glideTo(dir > 0 ? (k > 0.04 ? tops[i + 1] : tops[i]) : (k < 0.96 ? tops[i] : tops[i + 1]));
   }
   document.querySelectorAll('a[href^="#"]').forEach((el) => el.addEventListener('click', (e) => { const t = document.querySelector(el.getAttribute('href')); if (!t) return; e.preventDefault(); if (reduced) window.scrollTo(0, t.offsetTop); else glideTo(t.offsetTop); }));
-  let finger = false;
-  addEventListener('touchstart', () => { finger = true; }, { passive: true });
-  addEventListener('touchend', () => { finger = false; clearTimeout(idle); idle = setTimeout(settle, 220); }, { passive: true });
-  addEventListener('touchcancel', () => { finger = false; }, { passive: true });
-  const stopGlide = () => { if (!gliding) return; cancelAnimationFrame(gliding); gliding = 0; glideIdx = -1; glideFrom = -1; readScroll(); };
-  addEventListener('wheel', stopGlide, { passive: true }); addEventListener('touchstart', stopGlide, { passive: true }); addEventListener('keydown', stopGlide);
+  // На телефоне вертикальный жест и его доводка — одно движение, без ожидания нативной инерции.
+  // Меню, поля, ползунки, масштабирование двумя пальцами и низ последней главы остаются нативными.
+  let finger = false, gesture = null;
+  const stopGlide = () => { if (!gliding) return; cancelAnimationFrame(gliding); gliding = 0; swipeSettling = false; glideIdx = -1; glideFrom = -1; gk = 0; readScroll(); };
+  function settleSwipe(speed) {
+    const y = window.scrollY, tops = chapterTops;
+    let i = 0; while (i < tops.length - 1 && y >= tops[i + 1]) i++;
+    if (i === tops.length - 1 && speed >= 0) return;
+    const next = Math.min(i + 1, tops.length - 1), span = tops[next] - tops[i];
+    if (!span) return;
+    const k = (y - tops[i]) / span, forward = Math.abs(speed) > 0.08 ? speed > 0 : dir > 0;
+    const flick = Math.abs(speed) > 0.25;
+    const idx = forward ? (k > 0.04 || flick ? next : i) : (k < 0.96 || flick ? i : next);
+    const dist = tops[idx] - y, p0 = scrollPos, dp = idx - p0;
+    if (Math.abs(dist) < 1 && Math.abs(dp) < 0.001) return;
+    clearTimeout(idle); cancelAnimationFrame(gliding);
+    glideIdx = glideFrom = -1; swipeSettling = true;
+    const t0 = performance.now(), dur = clamp(460 + Math.abs(dp) * 160, 460, 800);
+    // Кубическая кривая с начальной скоростью: после отпускания нет второго разгона с нуля.
+    const slope = dist ? clamp(speed * dur / dist, 1, 3) : 1;
+    const curve = (t) => ((slope - 2) * t + 3 - 2 * slope) * t * t + slope * t;
+    const tick = (now) => {
+      const t = clamp((now - t0) / dur, 0, 1), e = curve(t);
+      window.scrollTo(0, y + dist * e); scrollTarget = mix(p0, idx, e);
+      if (t < 1) gliding = requestAnimationFrame(tick);
+      else { scrollPos = scrollTarget = idx; vel = 0; gliding = 0; swipeSettling = false; readScroll(); }
+    };
+    gliding = requestAnimationFrame(tick);
+  }
+  addEventListener('touchstart', (e) => {
+    stopGlide(); clearTimeout(idle); finger = true; gesture = null;
+    if (!touch || reduced || e.touches.length !== 1 || (window.visualViewport && window.visualViewport.scale !== 1) || document.body.classList.contains('pin') || SHOT !== null || !menu.hidden || e.target.closest('input, textarea, select, button, label, [contenteditable]')) return;
+    const t = e.touches[0], now = performance.now();
+    gesture = { id: t.identifier, x: t.clientX, y: t.clientY, scroll: window.scrollY, mode: '', samples: [{ y: t.clientY, time: now }] };
+  }, { passive: true });
+  addEventListener('touchmove', (e) => {
+    if (!gesture) return;
+    if (e.touches.length !== 1 || (window.visualViewport && window.visualViewport.scale !== 1)) { gesture = null; return; }
+    const t = e.touches[0], g = gesture;
+    if (t.identifier !== g.id || g.mode === 'native') return;
+    const dx = t.clientX - g.x, dy = g.y - t.clientY;
+    if (!g.mode) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < 6) return;
+      if (Math.abs(dy) <= Math.abs(dx) || (g.scroll >= chapterTops[chapterTops.length - 1] && dy > 0)) { g.mode = 'native'; return; }
+      g.mode = 'page';
+    }
+    if (!e.cancelable) { g.mode = 'native'; return; }
+    e.preventDefault();
+    window.scrollTo(0, g.scroll + dy); readScroll();
+    const now = performance.now(); g.samples.push({ y: t.clientY, time: now });
+    while (g.samples.length > 2 && now - g.samples[0].time > 100) g.samples.shift();
+    if (dy) dir = dy > 0 ? 1 : -1;
+  }, { passive: false });
+  addEventListener('touchend', (e) => {
+    finger = e.touches.length > 0;
+    if (finger) return;
+    clearTimeout(idle); const g = gesture; gesture = null;
+    if (g && g.mode === 'page') {
+      const first = g.samples[0], last = g.samples[g.samples.length - 1], elapsed = performance.now() - last.time;
+      const speed = elapsed < 100 ? (first.y - last.y) / Math.max(1, last.time - first.time) : 0;
+      settleSwipe(speed);
+    } else idle = setTimeout(settle, 220);
+  }, { passive: true });
+  addEventListener('touchcancel', (e) => { finger = e.touches.length > 0; gesture = null; clearTimeout(idle); if (!finger) idle = setTimeout(settle, 220); }, { passive: true });
+  addEventListener('wheel', stopGlide, { passive: true }); addEventListener('keydown', stopGlide);
   addEventListener('scroll', () => {
     const y = window.scrollY; if (y !== lastY) dir = y > lastY ? 1 : -1; lastY = y;
-    readScroll(); clearTimeout(idle); if (!gliding) idle = setTimeout(settle, touch ? 220 : 130);
+    readScroll(); clearTimeout(idle); if (!gliding && !finger) idle = setTimeout(settle, touch ? 220 : 130);
   }, { passive: true });
-  addEventListener('resize', () => { resize(); readScroll(); });
-  resize(); apply(); rollStats(true); zone = zoneTarget; radiiTarget.set(zoneShape(zone)); radii.set(radiiTarget);
+  addEventListener('resize', () => { resize(); measureChapters(); readScroll(); });
+  document.fonts.ready.then(measureChapters);
+  resize(); measureChapters(); apply(); rollStats(true); zone = zoneTarget; radiiTarget.set(zoneShape(zone)); radii.set(radiiTarget);
   for (let i = 0; i < backlog; i++) spawn(Math.random() * 14);
   readScroll(); scrollPos = scrollTarget; applyChapters();
   { const pin = new URLSearchParams(location.search).get('pin'), idx = chapters.findIndex((c) => c.id === pin); if (idx >= 0) { document.body.classList.add('pin'); intro = 1; scrollTarget = scrollPos = idx; readScroll = () => {}; applyChapters(); } }   // ?pin=console показывает одну главу без прокрутки — для снимков
