@@ -179,6 +179,7 @@
   .answers dt { color: var(--alpha-white60); } .answers dd { margin: 0; }
   .lead-ch .stick { grid-template-columns: minmax(0, 640px) minmax(0, 520px); justify-content: space-between; align-items: center; column-gap: 48px; }
   .lead-ch h2 { font-size: min(64px, 6.2vw); line-height: 1.0625; margin-bottom: 24px; }
+  .lead-ch h2 span { display: block; }   /* перенос по смыслу: действие, потом обещание */
   .lead-ch .stick > div:first-child { padding-bottom: 14vh; }
   .formbox { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 16px; padding: 32px; border-radius: 16px; background: linear-gradient(var(--alpha-white10), var(--alpha-white10)), var(--black); }
   .field { display: grid; gap: 8px; } .field span { font-size: 13px; line-height: 18px; color: var(--alpha-white60); }
@@ -421,7 +422,7 @@
 
   <section class="chapter lead-ch" id="lead"><div class="stick">
     <div>
-      <h2 id="leadH">Разберем ваш кейс за&nbsp;15&nbsp;минут</h2>
+      <h2 id="leadH"><span>Разберем ваш кейс</span> <span>за&nbsp;15&nbsp;минут</span></h2>
       <p class="lead muted" id="leadSub">Покажем на&nbsp;ваших цифрах, что изменится в&nbsp;час пик</p>
     </div>
     <form class="formbox" id="leadForm" novalidate autocomplete="off">
