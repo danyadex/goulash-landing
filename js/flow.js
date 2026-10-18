@@ -103,8 +103,8 @@
   const cam = { zoom: 1, ox: 0, oy: 0, rot: 0, tilt: 1 };
   // параметры портрета из зерен
   const GP = { pic: 0.6, n: 18000, gamma: 1.3, dot: 0.55, jitter: 7, floor: 0.8, shimmer: 0.46, band: 1, speed: 0.49, reach: 0.24, push: 3.5, dust: 1600, far: 2.1 };   // воздушный портрет: значения выставил Даниил 18.10 пультом ?grain
-  if (matchMedia('(max-width: 899px)').matches) Object.assign(GP, { n: 16000, dot: 0.9, dust: 700, pic: 0.8, gamma: 3.3, floor: 0.74, jitter: 15, shimmer: 0.22, band: 0.25, speed: 0.12, far: 1.1 });   // на телефоне мелкие зёрна сливаются в шум: их меньше, они крупнее
-  // Телефон: зерно запекается в чёткий слой заранее. В кадре двигаются полосы сборки и свет, а не 16 тысяч точек.
+  if (matchMedia('(max-width: 899px)').matches) Object.assign(GP, { n: 18000, dot: 0.65, dust: 700, pic: 0.48, gamma: 1.6, floor: 0.8, jitter: 7, shimmer: 0.32, band: 0.5, speed: 0.2, far: 1.6 });   // мобильная голограмма: тонкое зерно и полупрозрачная подложка сохраняют лицо
+  // Телефон: зерно запекается в чёткий слой заранее. В кадре двигаются полосы сборки и свет, а не 18 тысяч точек.
   async function bakePortrait(f) {
     if (f.baking || !f.grain) return;
     f.baking = true;
@@ -226,6 +226,7 @@
     poses = wide
       ? [{ zoom: 1.12, ox: w * 0.68, oy: h * 0.5, rot: -0.2, tilt: 0.86 }, { zoom: 2.7, ox: w * 0.72, oy: h * 0.64, rot: -0.85, tilt: 0.3 }, { zoom: 1.5, ox: w * 0.66, oy: h * 0.44, rot: -0.02, tilt: 0.8 }, { zoom: 0.84, ox: w * 0.42, oy: h * 0.56, rot: 0.2, tilt: 0.6 }, { zoom: 0.7, ox: w * 0.72, oy: h * 0.5, rot: 0.38, tilt: 0.7 }, { zoom: 0.82, ox: w * 0.77, oy: h * 0.52, rot: 0.55, tilt: 0.72 }, { zoom: 0.9, ox: w * 0.5, oy: h * 0.5, rot: 0.72, tilt: 0.75 }]
       : [{ zoom: 0.9, ox: w * 0.5, oy: h * 0.72, rot: -0.2, tilt: 0.86 }, { zoom: 2.0, ox: w * 0.5, oy: h * 0.8, rot: -0.85, tilt: 0.32 }, { zoom: Math.min(0.55, w / 760), ox: w * 0.5, oy: h * 0.72, rot: -0.05, tilt: 0.8 }, { zoom: 0.62, ox: w * 0.42, oy: h * 0.55, rot: 0.2, tilt: 0.6 }, { zoom: 0.55, ox: w * 0.5, oy: h * 0.6, rot: 0.38, tilt: 0.7 }, { zoom: 0.5, ox: w * 0.5, oy: h * 0.76, rot: 0.55, tilt: 0.72 }, { zoom: 0.7, ox: w * 0.5, oy: h * 0.5, rot: 0.72, tilt: 0.75 }];
+    if (!wide) poses.forEach((pose, i) => { pose.oy += i === C ? 8 : 20; });
   }
   let px = 0, py = 0, mx = -9999, my = -9999, tmx = 0, tmy = 0, hasMouse = false;
   const toScreen = (x, y) => { const dx = (x - KX) * cam.zoom, dy = (y - KY) * cam.zoom, c = Math.cos(cam.rot), s = Math.sin(cam.rot); return [cam.ox + px + dx * c - dy * s, cam.oy + py + (dx * s + dy * c) * cam.tilt]; };
@@ -271,6 +272,23 @@
       const stick = el.closest('.stick'), idx = sticks.indexOf(stick);
       return [el, { idx, bottom: el.offsetTop + el.offsetHeight, height: stick.offsetHeight }];
     }));
+    // Размещаем сеть между текстом и нижним краем один раз при изменении вёрстки.
+    // В кадре используем готовую позу: дополнительных измерений DOM нет.
+    if (!wide) {
+      const text = chapters[5].querySelector('.stick > div'), pose = poses[5];
+      const top = text.offsetTop + text.offsetHeight + 32, bottom = Math.min(h, sticks[5].offsetHeight) - 28;
+      const c = Math.cos(pose.rot), s = Math.sin(pose.rot);
+      const points = [{ x: KX, y: KY }, ...net].map(({ x, y }) => {
+        const dx = x - KX, dy = y - KY;
+        return [(dx * c - dy * s), (dx * s + dy * c) * pose.tilt];
+      });
+      const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
+      const left = Math.min(...xs), right = Math.max(...xs), upper = Math.min(...ys), lower = Math.max(...ys);
+      const room = Math.max(100, bottom - top);
+      pose.zoom = Math.min(0.5, (w - 56) / (right - left), Math.max(52, room - 48) / (lower - upper));
+      pose.ox = w / 2 - (left + right) * pose.zoom / 2;
+      pose.oy = top + room / 2 - (upper + lower) * pose.zoom / 2;
+    }
   }
   function sceneBottom(el, pageY) {
     const box = sceneLayout.get(el); if (!box) return h * 0.5;
@@ -541,7 +559,7 @@
       ctx.fillStyle = BLACK; ctx.globalAlpha = smooth(morphK * 1.4); ctx.fillRect(0, 0, w, h);
       let size = wide ? Math.min(w * 0.548, h * 0.95) : Math.min(w * 1.17, h * 0.548), bx = (wide ? w * 0.745 : w * 0.5) - size / 2, by = (wide ? h * 0.53 : h * 0.75) - size / 2;
       if (!wide) {                                       // на телефоне сцена занимает место под текстом главы, сколько бы его ни было
-        const el = F === fields[3] ? casesText : painText, top = el ? sceneBottom(el, pageY) + 6 : h * 0.5, room = Math.max(120, h - top - 10);
+        const el = F === fields[3] ? casesText : painText, top = el ? sceneBottom(el, pageY) + 24 : h * 0.5, room = Math.max(120, h - top - 10);
         size = Math.min(w * 1.17, room / 0.86); bx = w / 2 - size / 2; by = top + room / 2 - size * 0.51;
       }
       const G = F.g, at = (x, y) => (Math.min(G - 1, Math.max(0, y * G | 0)) * G + Math.min(G - 1, Math.max(0, x * G | 0)));
