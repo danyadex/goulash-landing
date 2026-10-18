@@ -109,17 +109,18 @@
     if (f.baking || !f.grain) return;
     f.baking = true;
     const P = f.grain, side = Math.ceil(w * 1.17 * ratio), dot = Math.max(0.5 * ratio, side / 700 * GP.dot);
-    const cv = document.createElement('canvas'); cv.width = cv.height = side;
-    const c = cv.getContext('2d'); c.fillStyle = CYAN;
+    const mk = () => { const cv = document.createElement('canvas'); cv.width = cv.height = side; const c = cv.getContext('2d'); c.fillStyle = CYAN; return [cv, c]; };
+    const [cv, c] = mk(), tw = [mk(), mk(), mk()];       // база и три слоя мерцания: зёрна вспыхивают группами вразнобой
     for (let start = 0; start < P.length; start += 8192 * 8) {
-      c.beginPath(); const end = Math.min(start + 8192 * 8, P.length);
+      c.beginPath(); for (const [, t] of tw) t.beginPath(); const end = Math.min(start + 8192 * 8, P.length);
       for (let i = start; i < end; i += 8) {
-        const sz = dot * P[i + 6]; c.rect(P[i] * side, P[i + 1] * side, sz, sz);
+        const sz = dot * P[i + 6], x = P[i] * side, y = P[i + 1] * side; c.rect(x, y, sz, sz);
+        tw[(i >> 3) % 3][1].rect(x, y, sz, sz);
       }
-      c.fill(); await idlePause();
+      c.fill(); for (const [, t] of tw) t.fill(); await idlePause();
       if (f.grain !== P) { f.baking = false; return; }
     }
-    f.grainSprite = cv; f.baking = false;
+    f.grainSprite = cv; f.grainTw = tw.map(([v]) => v); f.baking = false;
   }
   function mobilePortrait(f, bx, by, size) {
     const sprite = f.grainSprite;
@@ -129,7 +130,17 @@
     }
     if (sprite.width !== Math.ceil(w * 1.17 * ratio)) bakePortrait(f);
     const light = reduced ? 0.88 : 0.84 + 0.06 * Math.sin(clock * 1.3);
-    if (morphK > 0.998) { ctx.globalAlpha = light; ctx.drawImage(sprite, bx, by, size, size); }
+    if (morphK > 0.998) {
+      ctx.globalAlpha = light * (1 - GP.shimmer); ctx.drawImage(sprite, bx, by, size, size);
+      if (f.grainTw && !reduced) {                        // мерцание: три группы зёрен по очереди вспыхивают
+        for (let k = 0; k < 3; k++) { const a = GP.shimmer * 2.2 * Math.max(0, Math.sin(clock * 2.3 + k * 2.094)); if (a > 0.01) { ctx.globalAlpha = Math.min(1, a); ctx.drawImage(f.grainTw[k], bx, by, size, size); } }
+        if (GP.band > 0) {                                // полоса света идёт по портрету, как на десктопе
+          const t = (clock * GP.speed) % 1, cx = -0.35 + 1.7 * t, bw = 0.16;
+          const sx = Math.max(0, Math.floor((cx - bw) * sprite.width)), ex = Math.min(sprite.width, Math.ceil((cx + bw) * sprite.width));
+          if (ex > sx) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.55 * GP.band; ctx.drawImage(sprite, sx, 0, ex - sx, sprite.height, bx + sx / sprite.width * size, by, (ex - sx) / sprite.width * size, size); ctx.globalCompositeOperation = 'source-over'; }
+        }
+      }
+    }
     else for (let col = 0; col < 24; col++) {
       const hx = (col + 0.5) / 24, e = inOut(clamp((morphK - hx * 0.45) / 0.55, 0, 1));
       if (e <= 0) continue;
@@ -200,7 +211,7 @@
             const q = Math.random();
             P[k * 8] = ((lo % n) + Math.random()) / n; P[k * 8 + 1] = (Math.floor(lo / n) + Math.random()) / n; P[k * 8 + 2] = d[lo * 4 + 1] / 255; P[k * 8 + 3] = Math.random() * 6.283; P[k * 8 + 4] = (Math.random() - 0.5) * 2; P[k * 8 + 5] = (Math.random() - 0.5) * 2;
             P[k * 8 + 6] = q < 0.8 ? 0.7 + Math.random() * 0.5 : q < 0.97 ? 1.2 + Math.random() * 0.6 : 1.8 + Math.random() * 1; }   // зерно разного калибра, как на исходнике
-          f.grain = P; f.grainSprite = null; f.go = new Float32Array(N * 4);
+          f.grain = P; f.grainSprite = null; f.grainTw = null; f.go = new Float32Array(N * 4);
           const M = Math.round(GP.dust), U = new Float32Array(M * 5);   // россыпь: зёрна уходят за пределы портрета и редеют с расстоянием
           for (let k = 0; k < M; k++) { const fr = Math.pow(Math.random(), 1.9), rr = 0.36 + fr * GP.far, th = Math.random() * 6.283, q = Math.random();
             U[k * 5] = 0.5 + Math.cos(th) * rr * 1.08; U[k * 5 + 1] = 0.5 + Math.sin(th) * rr * 0.92; U[k * 5 + 2] = Math.pow(1 - fr, 1.4); U[k * 5 + 3] = Math.random() * 6.283; U[k * 5 + 4] = q < 0.75 ? 0.8 + Math.random() * 0.7 : q < 0.96 ? 1.5 + Math.random() * 1 : 2.6 + Math.random() * 1.6; }
