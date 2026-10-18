@@ -688,7 +688,7 @@
     tags.sort((a, b) => b.wait - a.wait);
     ctx.font = `400 11px ${FONT}`; ctx.textBaseline = 'middle';
     const placed = [];
-    if (moveK > 0.05) tags.length = 0;                   // на «Внедрении» бирки с минутами мешают графике сети
+    if (moveK > 0.05 || (!wide && sys > 0.05)) tags.length = 0;   // на «Внедрении» и в «Продукте» на телефоне бирки с минутами мешают графике
     for (const t of tags) {
       if (placed.length >= 4) break;
       if (placed.some((q) => Math.abs(q.x - t.x) < 90 && Math.abs(q.y - t.y) < 30)) continue;
