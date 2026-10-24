@@ -8,9 +8,9 @@
 <link rel="icon" href="assets/sign.svg" type="image/svg+xml">
 <link rel="preload" href="assets/fonts/onest-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="assets/fonts/onest-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="js/flow.js?v=1018-mobile37" as="script">
-<link rel="preload" href="data/ekb-map.json?v=1018-mobile37" as="fetch" crossorigin>
-<link rel="stylesheet" href="css/tokens.css?v=1018-mobile37">
+<link rel="preload" href="js/flow.js?v=1018-mobile38" as="script">
+<link rel="preload" href="data/ekb-map.json?v=1018-mobile38" as="fetch" crossorigin>
+<link rel="stylesheet" href="css/tokens.css?v=1018-mobile38">
 <style>
   :root { --g: clamp(20px, 5vw, 64px); }
   *, *::before, *::after { box-sizing: border-box; }
@@ -183,13 +183,13 @@
   .lead-ch h2 span { display: block; }   /* перенос по смыслу: действие, потом обещание */
   .lead-ch .stick > div:first-child { padding-bottom: 14vh; }
   .formbox { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 16px; padding: 32px; border-radius: 16px; background: linear-gradient(var(--alpha-white10), var(--alpha-white10)), var(--black); }
-  .field { display: grid; gap: 8px; } .field span { font-size: 13px; line-height: 18px; color: var(--alpha-white60); }
+  .field { display: grid; gap: 8px; align-content: start; }   /* ошибка соседа по паре не раздвигает поле */ .field span { font-size: 13px; line-height: 18px; color: var(--alpha-white60); }
   .field input::placeholder { color: transparent; }   /* подсказки внутри полей видны только на низких экранах, где подписи над полями прячутся */
   .field input:not([type="checkbox"]) { width: 100%; min-width: 0; height: 56px; padding: 0 16px; border: 1px solid var(--alpha-white10); border-radius: 12px; background: var(--black); color: var(--white); font: inherit; transition: box-shadow .15s; }
   .field input:focus-visible { outline: 2px solid var(--white); outline-offset: 2px; }
   /* автозаполнение браузера не красит поля в голубой */
   .field input:-webkit-autofill, .field input:-webkit-autofill:hover, .field input:-webkit-autofill:focus { -webkit-text-fill-color: var(--white); caret-color: var(--white); -webkit-box-shadow: inset 0 0 0 100px #000; box-shadow: inset 0 0 0 100px #000; }
-  .pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+  .pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
   .check { display: flex; align-items: center; gap: 12px; color: var(--alpha-white60); cursor: pointer; } .check:hover { color: var(--white); }
   .check input[aria-invalid="true"] { box-shadow: inset 0 0 0 1.5px var(--white); }
   .check input { appearance: none; -webkit-appearance: none; flex: none; width: 20px; height: 20px; margin: 0; border-radius: 6px; background: var(--alpha-white10); cursor: pointer; transition: background-color .15s; }
@@ -465,8 +465,8 @@
 </main>
 
 <!-- версия в адресах: меняется при каждой правке, чтобы браузер не показывал старые файлы из кэша -->
-<script>window.__v = "1018-mobile37";</script>
-<script src="js/model.js?v=1018-mobile37"></script>
-<script src="js/flow.js?v=1018-mobile37"></script>
+<script>window.__v = "1018-mobile38";</script>
+<script src="js/model.js?v=1018-mobile38"></script>
+<script src="js/flow.js?v=1018-mobile38"></script>
 </body>
 </html>
